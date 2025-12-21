@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  semantic-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: semantic-service
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount index directory for persistence
+      - ./backend/semantic/index:/app/index
+    environment:
+      - INDEX_DIR=/app/index
+      - MODEL_NAME=all-MiniLM-L6-v2
+      - EMBEDDING_DIM=384
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - personal-drive-network
+
+networks:
+  personal-drive-network:
+    driver: bridge
