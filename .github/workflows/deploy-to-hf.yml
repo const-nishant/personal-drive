@@ -7,7 +7,6 @@ on:
     paths:
       - "backend/semantic/**"
       - "Dockerfile"
-      - "README.md"
 
   workflow_dispatch:
 
