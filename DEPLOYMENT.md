@@ -52,7 +52,7 @@ Before deploying, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/const-nishant/personal-drive.git
 cd personal-drive
 ```
 
@@ -532,7 +532,7 @@ NODE_ENV=development
 
 For deployment issues:
 
-1. Check the [GitHub Issues](https://github.com/your-repo/issues)
+1. Check the [GitHub Issues](https://github.com/const-nishant/personal-drive/issues)
 2. Review the [Documentation](https://docs.yourdomain.com)
 3. Contact support: support@yourdomain.com
 
