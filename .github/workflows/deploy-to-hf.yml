@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout GitHub repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Push to Hugging Face Space
         env:
@@ -23,4 +25,4 @@ jobs:
 
           git remote add hf https://const-nishant:${HF_TOKEN}@huggingface.co/spaces/const-nishant/personal-drive-semantic-service
 
-          git push hf main --force
+          git push hf HEAD:main --force
