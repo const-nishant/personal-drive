@@ -1,9 +1,3 @@
----
-title: Personal Drive Semantic Service
-sdk: docker
----
-
-Semantic search backend using FastAPI and FAISS.
 
 # Personal Drive - AI-Powered Document Management System
 
