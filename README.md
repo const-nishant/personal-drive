@@ -1,4 +1,9 @@
+---
+title: Personal Drive Semantic Service
+sdk: docker
+---
 
+Semantic search backend using FastAPI and FAISS.
 # Personal Drive - AI-Powered Document Management System
 
 Personal Drive is a single-user, private Google-Drive-like system with semantic search and auto photo sync. Built with Flutter (thin client), Appwrite (orchestration), FastAPI (semantic search), and S3-compatible storage (B2/R2), it provides secure file storage with intelligent semantic search capabilities. The system is designed to minimize recurring costs, with only storage being a recurring expense.
