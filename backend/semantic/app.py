@@ -75,6 +75,22 @@ async def startup_event():
 
 
 # --- Endpoints ---
+@app.get("/")
+async def root():
+    """Root endpoint with service information."""
+    return {
+        "service": "Personal Drive Semantic Search Service",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "stats": "/stats",
+            "index": "/index",
+            "search": "/search"
+        },
+        "docs": "/docs"
+    }
+
+
 @app.post("/index")
 async def index_document(req: IndexRequest):
     """Index a document with its text content."""
