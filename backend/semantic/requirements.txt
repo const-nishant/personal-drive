@@ -1,0 +1,8 @@
+# Semantic search service requirements
+# Add Python dependencies here as needed
+fastapi
+uvicorn
+sentence-transformers
+faiss-cpu
+numpy
+pydantic
