@@ -85,8 +85,9 @@ S3_BUCKET_NAME=your_bucket_name
 S3_REGION=your_region
 
 # Semantic Service Configuration
-SEMANTIC_SERVICE_URL=http://semantic-service:8000
-SEMANTIC_SERVICE_API_KEY=your_api_key
+# For Hugging Face Spaces, use your Space URL (e.g., https://username-space-name.hf.space)
+SEMANTIC_SERVICE_URL=https://<your-rep>.hf.space
+SEMANTIC_SERVICE_API_KEY=your_api_key  # Optional, if you add authentication
 
 # File Limits
 MAX_FILE_SIZE=104857600  # 100MB in bytes
@@ -140,7 +141,9 @@ In Appwrite Cloud Console, configure:
      - `S3_SECRET_ACCESS_KEY`
      - `S3_BUCKET_NAME`
      - `SEMANTIC_SERVICE_URL` (public URL of your semantic service)
-     - `SEMANTIC_SERVICE_API_KEY` (if using API key authentication)
+       - **Hugging Face Spaces**: `https://{username}-{space-name}.hf.space`
+       - **Self-hosted**: `http://your-server-ip:7860` or your domain
+     - `SEMANTIC_SERVICE_API_KEY` (optional, if using API key authentication)
 
 ## Local Development
 
@@ -238,13 +241,46 @@ flutter run
 
 ### 3. Deploy Semantic Search Service
 
+#### Option A: Hugging Face Spaces (Recommended)
+
+1. **Create a Hugging Face Space**
+   - Go to https://huggingface.co/spaces
+   - Click "Create new Space"
+   - Name: `personal-drive-semantic-service`
+   - SDK: **Docker**
+   - Visibility: Public or Private
+   - Click "Create Space"
+
+2. **Push your code to the Space**
+   - Connect your GitHub repo or upload files directly
+   - Ensure `Dockerfile` and `README.md` are in the root
+   - Hugging Face will automatically build and deploy
+
+3. **Find your Service Endpoint URL**
+   - Once deployed, go to your Space page
+   - The endpoint URL format is: `https://{username}-{space-name}.hf.space`
+   - Example: `https://const-nishant-personal-drive-semantic-service.hf.space`
+   - Or check the Space settings → "API" section for the exact URL
+
+4. **Test the Service**
+   ```bash
+   # Replace with your actual Hugging Face Space URL
+   curl https://const-nishant-personal-drive-semantic-service.hf.space/health
+   ```
+
+5. **Use in Appwrite Functions**
+   - Set `SEMANTIC_SERVICE_URL` environment variable to your Hugging Face Space URL
+   - Example: `SEMANTIC_SERVICE_URL=https://const-nishant-personal-drive-semantic-service.hf.space`
+
+#### Option B: Self-Hosted Docker
+
 ```bash
 cd backend/semantic
 docker build -t semantic-service .
 docker run -d \
   --name semantic-service \
-  -p 8000:8000 \
-  -v $(pwd)/index:/app/index \
+  -p 7860:7860 \
+  -v $(pwd)/index:/data/index \
   semantic-service
 ```
 
@@ -495,9 +531,29 @@ curl -H "X-Appwrite-Key: $APPWRITE_API_KEY" \
 
 #### 4. Semantic Service Connection Issues
 
+**For Hugging Face Spaces:**
+```bash
+# Find your Space URL:
+# 1. Go to https://huggingface.co/spaces/{your-username}/{your-space-name}
+# 2. The endpoint URL is displayed in the Space page or Settings
+# 3. Format: https://{username}-{space-name}.hf.space
+
+# Test semantic service connection
+curl https://const-nishant-personal-drive-semantic-service.hf.space/health
+
+# Test root endpoint
+curl https://const-nishant-personal-drive-semantic-service.hf.space/
+
+# Test search endpoint
+curl -X POST https://const-nishant-personal-drive-semantic-service.hf.space/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test", "k": 5}'
+```
+
+**For Self-Hosted Docker:**
 ```bash
 # Test semantic service connection
-curl http://localhost:8000/health
+curl http://localhost:7860/health
 
 # Check semantic service logs
 docker logs semantic-service
