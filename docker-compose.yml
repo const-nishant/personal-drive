@@ -8,6 +8,7 @@ services:
     container_name: semantic-service
     ports:
       - "8000:8000"
+      
     volumes:
       # Mount index directory for persistence
       - ./backend/semantic/index:/app/index
