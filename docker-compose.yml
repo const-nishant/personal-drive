@@ -13,9 +13,7 @@ services:
       - ./backend/semantic/index:/app/index
     environment:
       - INDEX_DIR=/app/index
-      - MODEL_NAME=all-MiniLM-L6-v2
-      - EMBEDDING_DIM=384
-      - LOG_LEVEL=INFO
+      - API_KEY=${API_KEY:-} # Set API_KEY in .env file or environment for production
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:

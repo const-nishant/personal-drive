@@ -96,21 +96,47 @@ ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,text/plain
 
 #### Semantic Service Environment Variables
 
-Create a `.env` file in `backend/semantic/`:
+**Required for Production:**
+
+Set these environment variables in your hosting platform:
 
 ```env
-# Index Configuration
-INDEX_DIR=./index
-MODEL_NAME=all-MiniLM-L6-v2
-EMBEDDING_DIM=384
+# API Key Authentication (REQUIRED for production)
+# Generate a secure random key (e.g., using: python -c "import secrets; print(secrets.token_hex(32))")
+API_KEY=your-secure-random-api-key-here
+# OR use this alternative name:
+SEMANTIC_SERVICE_API_KEY=your-secure-random-api-key-here
 
-# Server Configuration
-HOST=0.0.0.0
-PORT=8000
-
-# Logging
-LOG_LEVEL=INFO
+# Index Storage Directory (Optional - defaults to ./index)
+INDEX_DIR=/app/index
 ```
+
+**For Hugging Face Spaces:**
+1. Go to your Space settings → "Variables and secrets"
+2. Add a new secret:
+   - **Name**: `API_KEY` or `SEMANTIC_SERVICE_API_KEY`
+   - **Value**: Your generated API key (keep it secret!)
+
+**For Docker/Docker Compose:**
+Add to your `docker-compose.yml` or `docker run` command:
+```yaml
+environment:
+  - API_KEY=your-secure-random-api-key-here
+  - INDEX_DIR=/app/index
+```
+
+**For Self-Hosted/VPS:**
+Set in your system environment or `.env` file:
+```bash
+export API_KEY="your-secure-random-api-key-here"
+export INDEX_DIR="/app/index"
+```
+
+**⚠️ Important:**
+- The API key is **REQUIRED** for production deployments
+- Without it, the service will generate a random key each time it restarts (not suitable for production)
+- Use the same API key value in Appwrite Functions' `SEMANTIC_SERVICE_API_KEY` environment variable
+- Never commit API keys to version control
 
 #### Flutter Configuration
 
@@ -371,8 +397,7 @@ services:
       - ./backend/semantic/index:/app/index
     environment:
       - INDEX_DIR=/app/index
-      - MODEL_NAME=all-MiniLM-L6-v2
-      - LOG_LEVEL=INFO
+      - API_KEY=${API_KEY}  # Set this in your .env file or environment
     restart: unless-stopped
 
 volumes:

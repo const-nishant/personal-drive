@@ -1,11 +1,12 @@
 import logging
 import os
 import pickle
+import secrets
 from threading import Lock
 from typing import List
 
 import faiss
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
@@ -19,6 +20,22 @@ INDEX_PATH = os.path.join(INDEX_DIR, "faiss.index")
 META_PATH = os.path.join(INDEX_DIR, "meta.pkl")
 MODEL_NAME = "all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384  # Dimension for all-MiniLM-L6-v2
+
+# API Key Configuration
+# Read from environment variable, or generate one for development
+API_KEY_ENV = os.getenv("API_KEY") or os.getenv("SEMANTIC_SERVICE_API_KEY")
+if API_KEY_ENV:
+    API_KEY = API_KEY_ENV
+    logger.info("API key loaded from environment variable")
+else:
+    # Generate a random API key for development (32 bytes = 64 hex characters)
+    API_KEY = secrets.token_hex(32)
+    logger.warning(
+        f"⚠️  No API_KEY environment variable set. Generated API key for this session: {API_KEY}"
+    )
+    logger.warning(
+        "⚠️  Set API_KEY or SEMANTIC_SERVICE_API_KEY environment variable for production!"
+    )
 
 # --- Global State (initialized at startup) ---
 app = FastAPI(title="Semantic Search Service")
@@ -41,6 +58,18 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     file_ids: List[str]
+
+
+# --- API Key Authentication ---
+async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")):
+    """Verify API key from request header."""
+    if x_api_key != API_KEY:
+        logger.warning(f"Invalid API key attempt: {x_api_key[:10]}...")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Provide X-API-Key header."
+        )
+    return x_api_key
 
 
 # --- Startup Event ---
@@ -92,7 +121,7 @@ async def root():
 
 
 @app.post("/index")
-async def index_document(req: IndexRequest):
+async def index_document(req: IndexRequest, api_key: str = Depends(verify_api_key)):
     """Index a document with its text content."""
     global index, id_map
 
@@ -134,7 +163,7 @@ async def index_document(req: IndexRequest):
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search_documents(req: SearchRequest):
+async def search_documents(req: SearchRequest, api_key: str = Depends(verify_api_key)):
     """Search for similar documents."""
     global index, id_map
 
@@ -189,7 +218,7 @@ async def health_check():
 
 
 @app.get("/stats")
-async def get_stats():
+async def get_stats(api_key: str = Depends(verify_api_key)):
     """Get service statistics."""
     return {
         "model": MODEL_NAME,
