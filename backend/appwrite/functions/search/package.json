@@ -1,0 +1,9 @@
+{
+  "name": "search",
+  "version": "1.0.0",
+  "description": "Handle search queries and coordinate with semantic service",
+  "main": "index.js",
+  "dependencies": {
+    "node-appwrite": "^13.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "presign-download",
+  "version": "1.0.0",
+  "description": "Generate presigned URLs for S3 downloads on-demand",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.490.0",
+    "@aws-sdk/s3-request-presigner": "^3.490.0",
+    "node-appwrite": "^13.0.0"
+  }
+}

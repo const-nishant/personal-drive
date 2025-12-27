@@ -67,6 +67,30 @@
       "type": "string",
       "size": 255,
       "required": false
+    },
+    {
+      "key": "hash",
+      "type": "string",
+      "size": 64,
+      "required": false
+    },
+    {
+      "key": "storagePath",
+      "type": "string",
+      "size": 500,
+      "required": false
+    },
+    {
+      "key": "createdAt",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "key": "status",
+      "type": "string",
+      "size": 50,
+      "required": false,
+      "default": "pending"
     }
   ],
   "indexes": [
@@ -92,6 +116,18 @@
       "key": "indexed_idx",
       "type": "key",
       "attributes": ["indexed"],
+      "orders": ["ASC"]
+    },
+    {
+      "key": "hash_idx",
+      "type": "key",
+      "attributes": ["hash"],
+      "orders": ["ASC"]
+    },
+    {
+      "key": "status_idx",
+      "type": "key",
+      "attributes": ["status"],
       "orders": ["ASC"]
     }
   ]
