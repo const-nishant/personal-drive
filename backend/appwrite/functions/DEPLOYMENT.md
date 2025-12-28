@@ -137,35 +137,19 @@ For each function, deploy it:
 ```bash
 # Deploy presignUpload
 cd backend/appwrite/functions/presignUpload
-appwrite functions create-deployment \
-  --function-id=presignUpload \
-  --entrypoint="index.js" \
-  --code="." \
-  --activate=true
+appwrite functions create-deployment --function-id=presignUpload --entrypoint="index.js" --code="." --activate=true
 
 # Deploy indexFile
 cd ../indexFile
-appwrite functions create-deployment \
-  --function-id=indexFile \
-  --entrypoint="index.js" \
-  --code="." \
-  --activate=true
+appwrite functions create-deployment --function-id=indexFile --entrypoint="index.js" --code="." --activate=true
 
 # Deploy search
 cd ../search
-appwrite functions create-deployment \
-  --function-id=search \
-  --entrypoint="index.js" \
-  --code="." \
-  --activate=true
+appwrite functions create-deployment --function-id=search --entrypoint="index.js" --code="." --activate=true
 
 # Deploy presignDownload
 cd ../presignDownload
-appwrite functions create-deployment \
-  --function-id=presignDownload \
-  --entrypoint="index.js" \
-  --code="." \
-  --activate=true
+appwrite functions create-deployment --function-id=presignDownload --entrypoint="index.js" --code="." --activate=true
 ```
 
 ### Using Appwrite Console
@@ -366,11 +350,7 @@ cd backend/appwrite/functions
 for func in presignUpload indexFile search presignDownload; do
   echo "Deploying $func..."
   cd $func
-  appwrite functions create-deployment \
-    --function-id=$func \
-    --entrypoint="index.js" \
-    --code="." \
-    --activate=true
+  appwrite functions create-deployment --function-id=$func --entrypoint="index.js" --code="." --activate=true
   cd ..
 done
 

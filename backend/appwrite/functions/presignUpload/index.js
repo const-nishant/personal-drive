@@ -1,217 +1,342 @@
-// Presign Upload Function
-// Generates pre-signed URLs for secure S3 uploads
-// Creates initial metadata record in database
-
 import { Client, ID, Databases } from "node-appwrite";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-/**
- * @param {object} context - The Appwrite function context
- * @param {object} req - The request object (contains body, headers, etc.)
- */
-export default async function (context, req) {
+export default async function presignUpload(context, req) {
   try {
-    // Handle case where req might be undefined (HTTP execution)
-    if (!req) {
-      req = context.req || {};
+    const request = req ?? context.req;
+    if (!request) {
+      return context.res.json(
+        { success: false, error: "Invalid context" },
+        400
+      );
     }
 
-    // Initialize Appwrite client
-    const client = new Client()
-      .setEndpoint(context.APPWRITE_FUNCTION_ENDPOINT)
-      .setProject(context.APPWRITE_FUNCTION_PROJECT_ID)
-      .setKey(context.APPWRITE_FUNCTION_API_KEY);
+    /* ---------------- ENV ---------------- */
+    const {
+      APPWRITE_FUNCTION_ENDPOINT,
+      APPWRITE_FUNCTION_PROJECT_ID,
+      APPWRITE_FUNCTION_API_KEY,
+      APPWRITE_DATABASE_ID,
+      FILES_COLLECTION_ID,
 
-    const databases = new Databases(client);
+      S3_ENDPOINT,
+      S3_ACCESS_KEY_ID,
+      S3_SECRET_ACCESS_KEY,
+      S3_BUCKET_NAME,
+      S3_REGION,
 
-    // Parse request body
-    // Appwrite provides bodyJson for HTTP executions via API
-    // The data is passed in req.bodyJson.data or context.req.bodyJson.data
-    let requestBody = req?.bodyJson || context.req?.bodyJson || {};
+      MAX_FILE_SIZE = "1073741824",
+      ALLOWED_MIME_TYPES,
+    } = process.env;
 
-    // If bodyJson.data exists (HTTP execution format), extract it
-    if (requestBody && typeof requestBody === "object" && requestBody.data !== undefined) {
-      // Handle both string and object formats for data
-      if (typeof requestBody.data === "string") {
-        try {
-          requestBody = JSON.parse(requestBody.data);
-        } catch (e) {
-          context.log("Failed to parse requestBody.data as JSON:", e.message);
-          requestBody = {};
+    const requiredEnvVars = [
+      APPWRITE_FUNCTION_ENDPOINT,
+      APPWRITE_FUNCTION_PROJECT_ID,
+      APPWRITE_FUNCTION_API_KEY,
+      APPWRITE_DATABASE_ID,
+      FILES_COLLECTION_ID,
+      S3_ENDPOINT,
+      S3_ACCESS_KEY_ID,
+      S3_SECRET_ACCESS_KEY,
+      S3_BUCKET_NAME,
+    ];
+
+    if (requiredEnvVars.some((v) => !v)) {
+      return context.res.json(
+        { success: false, error: "Server misconfigured" },
+        500
+      );
+    }
+
+    context.log("STEP 0: function entered");
+
+    // Debug: Log all available request properties
+    const requestKeys = Object.keys(request || {});
+    context.log("STEP 0: request object inspection", {
+      hasRequest: !!request,
+      requestKeys: requestKeys,
+      method: request?.method,
+      url: request?.url,
+      headers: request?.headers ? Object.keys(request.headers) : [],
+      hasBodyRaw: "bodyRaw" in (request || {}),
+      hasBodyJson: "bodyJson" in (request || {}),
+      hasBody: "body" in (request || {}),
+      // Try to access body directly if it exists
+      bodyType: typeof request?.body,
+      bodyValue: request?.body ? String(request.body).substring(0, 200) : null,
+    });
+
+    /* ---------------- REQUEST BODY (SAFE + APPWRITE-COMPATIBLE) ---------------- */
+    // Try bodyRaw first (safer - doesn't auto-parse), then fallback to bodyJson
+    let body = {};
+    let rawBody = null;
+
+    // First, try to get raw body string - try multiple ways
+    try {
+      rawBody = request.bodyRaw;
+      context.log("STEP 0: bodyRaw accessed", {
+        type: typeof rawBody,
+        length: rawBody?.length,
+        preview: rawBody?.substring(0, 200),
+      });
+    } catch (e) {
+      context.log("STEP 0: bodyRaw access failed", { error: e.message });
+      // Try request.body as fallback
+      try {
+        if (request.body && typeof request.body === "string") {
+          rawBody = request.body;
+          context.log("STEP 0: got body from request.body", {
+            length: rawBody.length,
+            preview: rawBody.substring(0, 200),
+          });
         }
-      } else if (typeof requestBody.data === "object") {
-        // data is already an object
-        requestBody = requestBody.data;
-      }
-    } else if (!requestBody || (typeof requestBody === "object" && Object.keys(requestBody).length === 0)) {
-      // Fallback: try to parse from body string or other locations
-      const bodyString = req?.body || context.req?.body || "";
-      if (bodyString && typeof bodyString === "string" && bodyString.trim()) {
-        try {
-          requestBody = JSON.parse(bodyString);
-          // After parsing, check if it has a data property
-          if (requestBody && typeof requestBody === "object" && requestBody.data) {
-            requestBody = typeof requestBody.data === "string" 
-              ? JSON.parse(requestBody.data) 
-              : requestBody.data;
-          }
-        } catch (e) {
-          context.log("Failed to parse body string as JSON:", e.message);
-          requestBody = {};
-        }
-      } else {
-        requestBody = {};
+      } catch (e2) {
+        context.log("STEP 0: request.body access also failed", {
+          error: e2.message,
+        });
       }
     }
 
-    // Debug logging (remove in production)
-    context.log("Parsed requestBody:", JSON.stringify(requestBody));
+    // If we have raw body, parse it manually
+    if (rawBody && typeof rawBody === "string" && rawBody.trim().length > 0) {
+      try {
+        body = JSON.parse(rawBody);
+        context.log("STEP 0: parsed body from bodyRaw", {
+          bodyKeys: Object.keys(body),
+        });
+      } catch (parseError) {
+        context.log("STEP 0: failed to parse bodyRaw", {
+          error: parseError.message,
+          bodyPreview: rawBody.substring(0, 200),
+        });
+        return context.res.json(
+          {
+            success: false,
+            error: `Invalid JSON in request body: ${parseError.message}`,
+          },
+          400
+        );
+      }
+    } else {
+      // bodyRaw is empty - this means the HTTP request body wasn't sent
+      // When using Appwrite execution API via REST, body must be wrapped in { data: "..." }
+      context.log("STEP 0: bodyRaw is empty - request body not received", {
+        bodyRawLength: rawBody?.length || 0,
+        bodyRawType: typeof rawBody,
+      });
+      return context.res.json(
+        {
+          success: false,
+          error:
+            "Request body is empty. When using Appwrite execution API, " +
+            "the body must be sent as: " +
+            '{"data":"{\\"name\\":\\"test.txt\\",\\"size\\":25,\\"mimeType\\":\\"text/plain\\"}"} ' +
+            "(Note: the inner JSON must be stringified). " +
+            "In Postman: Body tab → raw → JSON → Use the format above.",
+        },
+        400
+      );
+    }
+
+    // Handle Appwrite execution API format: body may be wrapped in { data: ... }
+    if (typeof body?.data === "string") {
+      // Only parse if the string is not empty
+      if (body.data.trim().length === 0) {
+        context.log("STEP 0: body.data is empty string");
+        return context.res.json(
+          {
+            success: false,
+            error: "Request body is empty or invalid",
+          },
+          400
+        );
+      }
+      try {
+        body = JSON.parse(body.data);
+      } catch (parseError) {
+        context.log("STEP 0: failed to parse body.data string", {
+          error: parseError.message,
+          bodyData: body.data?.substring(0, 100),
+        });
+        return context.res.json(
+          {
+            success: false,
+            error: `Invalid JSON in body.data: ${parseError.message}`,
+          },
+          400
+        );
+      }
+    } else if (typeof body?.data === "object" && body.data !== null) {
+      body = body.data;
+    } else if (Object.keys(body).length === 0) {
+      // Body is empty object - no data provided
+      context.log("STEP 0: body is empty after parsing");
+      return context.res.json(
+        {
+          success: false,
+          error: "Request body is required",
+        },
+        400
+      );
+    }
+
+    context.log("STEP 1: body parsed");
 
     const {
       name,
       size,
       mimeType,
-      folderId,
-      description,
-      tags,
+      folderId = null,
+      description = null,
+      tags = null,
+      uploadMode = "single",
+      parts = 0,
       userId: bodyUserId,
-    } = requestBody || {};
+    } = body;
 
-    // Use userId from body if not in headers
-    // Check multiple header locations for user ID
-    const headerUserId =
-      req?.headers?.["x-appwrite-user-id"] ||
-      context.req?.headers?.["x-appwrite-user-id"] ||
-      req?.headers?.["X-Appwrite-User-Id"] ||
-      context.req?.headers?.["X-Appwrite-User-Id"];
+    const userId =
+      request.headers?.["x-appwrite-user-id"] ??
+      request.headers?.["X-Appwrite-User-Id"] ??
+      bodyUserId;
 
-    const userId = headerUserId || bodyUserId;
-
-    // Debug logging
-    context.log(
-      `userId from headers: ${headerUserId}, from body: ${bodyUserId}, final: ${userId}`
-    );
-
-    if (!userId) {
+    if (
+      !userId ||
+      !name ||
+      !mimeType ||
+      typeof size !== "number" ||
+      size <= 0
+    ) {
       return context.res.json(
-        {
-          success: false,
-          error: "User authentication required",
-        },
-        401
-      );
-    }
-
-    // Validate required fields
-    if (!name || !size || !mimeType) {
-      return context.res.json(
-        {
-          success: false,
-          error: "Missing required fields: name, size, mimeType",
-        },
+        { success: false, error: "Invalid request payload" },
         400
       );
     }
 
-    // Validate file size (max 1GB)
-    const MAX_FILE_SIZE = parseInt(context.env.MAX_FILE_SIZE || "1073741824"); // 1GB default
-    if (size > MAX_FILE_SIZE) {
-      return context.res.json(
-        {
-          success: false,
-          error: `File size exceeds maximum allowed size of ${
-            MAX_FILE_SIZE / 1024 / 1024
-          }MB`,
-        },
-        400
-      );
+    if (size > Number(MAX_FILE_SIZE)) {
+      return context.res.json({ success: false, error: "File too large" }, 400);
     }
 
-    // Validate MIME type (whitelist)
-    const ALLOWED_MIME_TYPES = (
-      context.env.ALLOWED_MIME_TYPES ||
-      "application/pdf,image/jpeg,image/png,image/jpg,image/gif,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    const allowedTypes = (
+      ALLOWED_MIME_TYPES ??
+      "application/pdf,text/plain,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ).split(",");
 
-    if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+    if (!allowedTypes.includes(mimeType)) {
       return context.res.json(
-        {
-          success: false,
-          error: `MIME type ${mimeType} is not allowed`,
-        },
+        { success: false, error: "MIME type not allowed" },
         400
       );
     }
 
-    // Sanitize file name (prevent path traversal)
-    const sanitizedName = name
-      .replace(/[^a-zA-Z0-9._-]/g, "_")
-      .substring(0, 255);
-    if (!sanitizedName) {
-      return context.res.json(
-        {
-          success: false,
-          error: "Invalid file name",
-        },
-        400
-      );
-    }
-
-    // Generate unique file ID
+    const sanitizedName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 255);
     const fileId = ID.unique();
-
-    // Determine storage path based on MIME type
     const now = new Date();
+
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
 
-    let storagePath;
-    if (mimeType.startsWith("image/")) {
-      // Photos: photos/YYYY/MM/filename.ext
-      storagePath = `photos/${year}/${month}/${fileId}_${sanitizedName}`;
+    const storagePath = mimeType.startsWith("image/")
+      ? `photos/${year}/${month}/${fileId}_${sanitizedName}`
+      : `documents/${userId}/${fileId}_${sanitizedName}`;
+
+    /* ---------------- S3 ---------------- */
+    context.log("STEP 2: creating S3 client");
+
+    const s3 = new S3Client({
+      endpoint: S3_ENDPOINT,
+      region: S3_REGION || "us-east-1",
+      credentials: {
+        accessKeyId: S3_ACCESS_KEY_ID,
+        secretAccessKey: S3_SECRET_ACCESS_KEY,
+      },
+      forcePathStyle: true,
+    });
+
+    let upload;
+
+    if (uploadMode === "multipart") {
+      if (!parts || parts < 1) {
+        return context.res.json(
+          { success: false, error: "Invalid multipart parts" },
+          400
+        );
+      }
+
+      const create = await s3.send(
+        new CreateMultipartUploadCommand({
+          Bucket: S3_BUCKET_NAME,
+          Key: storagePath,
+          ContentType: mimeType,
+        })
+      );
+
+      const urls = await Promise.all(
+        Array.from({ length: parts }).map((_, i) =>
+          getSignedUrl(
+            s3,
+            new UploadPartCommand({
+              Bucket: S3_BUCKET_NAME,
+              Key: storagePath,
+              UploadId: create.UploadId,
+              PartNumber: i + 1,
+            }),
+            { expiresIn: 900 }
+          )
+        )
+      );
+
+      upload = {
+        mode: "multipart",
+        uploadId: create.UploadId,
+        parts: urls.map((url, i) => ({
+          partNumber: i + 1,
+          url,
+        })),
+      };
     } else {
-      // Documents: documents/user_id/filename.ext
-      storagePath = `documents/${userId}/${fileId}_${sanitizedName}`;
+      upload = {
+        mode: "single",
+        url: await getSignedUrl(
+          s3,
+          new PutObjectCommand({
+            Bucket: S3_BUCKET_NAME,
+            Key: storagePath,
+            ContentType: mimeType,
+          }),
+          { expiresIn: 900 }
+        ),
+      };
     }
 
-    // Initialize S3 client
-    const s3Client = new S3Client({
-      endpoint: context.env.S3_ENDPOINT,
-      region: context.env.S3_REGION || "us-east-1",
-      credentials: {
-        accessKeyId: context.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: context.env.S3_SECRET_ACCESS_KEY,
-      },
-      forcePathStyle: true, // Required for B2 and R2
-    });
+    /* ---------------- DATABASE ---------------- */
+    context.log("STEP 3: creating database record");
 
-    // Create presigned URL for upload (15 minutes expiration)
-    const command = new PutObjectCommand({
-      Bucket: context.env.S3_BUCKET_NAME,
-      Key: storagePath,
-      ContentType: mimeType,
-    });
+    const client = new Client()
+      .setEndpoint(APPWRITE_FUNCTION_ENDPOINT)
+      .setProject(APPWRITE_FUNCTION_PROJECT_ID)
+      .setKey(APPWRITE_FUNCTION_API_KEY);
 
-    const presignedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 900, // 15 minutes
-    });
+    const databases = new Databases(client);
 
-    // Create initial metadata record in database
-    const collectionId = context.env.FILES_COLLECTION_ID || "files";
-    const document = await databases.createDocument(
-      context.env.APPWRITE_DATABASE_ID || "default",
-      collectionId,
+    await databases.createDocument(
+      APPWRITE_DATABASE_ID,
+      FILES_COLLECTION_ID,
       ID.unique(),
       {
         fileId,
-        name: sanitizedName,
-        size: parseInt(size),
-        mimeType,
         userId,
-        folderId: folderId || null,
-        description: description || "",
-        tags: tags || [],
+        name: sanitizedName,
+        size,
+        mimeType,
+        folderId,
+        description,
+        tags,
         indexed: false,
         vectorId: null,
         hash: null,
@@ -221,27 +346,17 @@ export default async function (context, req) {
       }
     );
 
+    context.log("STEP 4: success");
+
     return context.res.json({
       success: true,
       fileId,
-      presignedUrl,
-      expiresIn: 900, // 15 minutes in seconds
-      metadata: {
-        fileId,
-        name: sanitizedName,
-        size: parseInt(size),
-        mimeType,
-        storagePath,
-        createdAt: now.toISOString(),
-      },
+      upload,
     });
-  } catch (error) {
-    console.error("Error in presignUpload function:", error);
+  } catch (err) {
+    context.error("presignUpload failed", err);
     return context.res.json(
-      {
-        success: false,
-        error: error.message || "Internal server error",
-      },
+      { success: false, error: err.message || "Internal error" },
       500
     );
   }

@@ -1,168 +1,105 @@
-// Search Function
-// Handles search queries and coordinates with semantic service
-// Returns complete results with file metadata
-
 import { Client, Databases, Query } from "node-appwrite";
 
 /**
- * @param {object} context - The Appwrite function context
- * @param {object} req - The request object
+ * Appwrite Function: search
+ * - Performs semantic search
+ * - Returns indexed files owned by the user
  */
-export default async function (context, req) {
+export default async function search(context, req) {
   try {
-    // Handle case where req might be undefined (HTTP execution)
-    if (!req) {
-      req = context.req || {};
+    const request = req ?? context.req;
+    if (!request) {
+      return context.res.json(
+        { success: false, error: "Invalid execution context" },
+        400
+      );
     }
 
-    // Initialize Appwrite client
-    const client = new Client()
-      .setEndpoint(context.APPWRITE_FUNCTION_ENDPOINT)
-      .setProject(context.APPWRITE_FUNCTION_PROJECT_ID)
-      .setKey(context.APPWRITE_FUNCTION_API_KEY);
+    /* ----------------------------------------------------
+     * Environment validation
+     * -------------------------------------------------- */
+    const {
+      APPWRITE_FUNCTION_ENDPOINT,
+      APPWRITE_FUNCTION_PROJECT_ID,
+      APPWRITE_FUNCTION_API_KEY,
+      APPWRITE_DATABASE_ID = "6950ec6400349318ed79",
+      FILES_COLLECTION_ID = "6950ec640034b7a80a2d",
+      SEMANTIC_SERVICE_URL,
+      SEMANTIC_SERVICE_API_KEY,
+    } = context.env;
 
-    const databases = new Databases(client);
-
-    // Parse request body
-    // Appwrite provides bodyJson for HTTP executions via API
-    // The data is passed in req.bodyJson.data or context.req.bodyJson.data
-    let requestBody = req?.bodyJson || context.req?.bodyJson || {};
-
-    // If bodyJson.data exists (HTTP execution format), extract it
-    if (requestBody && typeof requestBody === "object" && requestBody.data !== undefined) {
-      // Handle both string and object formats for data
-      if (typeof requestBody.data === "string") {
-        try {
-          requestBody = JSON.parse(requestBody.data);
-        } catch (e) {
-          context.log("Failed to parse requestBody.data as JSON:", e.message);
-          requestBody = {};
-        }
-      } else if (typeof requestBody.data === "object") {
-        // data is already an object
-        requestBody = requestBody.data;
-      }
-    } else if (!requestBody || (typeof requestBody === "object" && Object.keys(requestBody).length === 0)) {
-      // Fallback: try to parse from body string
-      const bodyString = req?.body || context.req?.body || "";
-      if (bodyString && typeof bodyString === "string" && bodyString.trim()) {
-        try {
-          requestBody = JSON.parse(bodyString);
-          // After parsing, check if it has a data property
-          if (requestBody && typeof requestBody === "object" && requestBody.data) {
-            requestBody = typeof requestBody.data === "string" 
-              ? JSON.parse(requestBody.data) 
-              : requestBody.data;
-          }
-        } catch (e) {
-          context.log("Failed to parse body string as JSON:", e.message);
-          requestBody = {};
-        }
-      } else {
-        requestBody = {};
-      }
+    if (
+      !APPWRITE_FUNCTION_ENDPOINT ||
+      !APPWRITE_FUNCTION_PROJECT_ID ||
+      !APPWRITE_FUNCTION_API_KEY ||
+      !SEMANTIC_SERVICE_URL
+    ) {
+      return context.res.json(
+        { success: false, error: "Server configuration incomplete" },
+        500
+      );
     }
 
-    const { query, k = 5, userId: bodyUserId } = requestBody;
+    /* ----------------------------------------------------
+     * Request parsing
+     * -------------------------------------------------- */
+    let body = request.bodyJson ?? {};
+    if (typeof body?.data === "string") body = JSON.parse(body.data);
+    if (typeof body?.data === "object") body = body.data;
 
-    // Get user ID from request
-    const userId = req?.headers?.["x-appwrite-user-id"] || bodyUserId;
+    const { query, k = 5, userId: bodyUserId } = body;
+    const userId = request.headers?.["x-appwrite-user-id"] ?? bodyUserId;
+
     if (!userId) {
       return context.res.json(
-        {
-          success: false,
-          error: "User authentication required",
-        },
+        { success: false, error: "Authentication required" },
         401
       );
     }
 
-    // Validate query
     if (!query || typeof query !== "string" || !query.trim()) {
       return context.res.json(
-        {
-          success: false,
-          error: "Search query is required",
-        },
+        { success: false, error: "Search query is required" },
         400
       );
     }
 
-    // Validate query length (max 500 chars)
-    const sanitizedQuery = query.trim().substring(0, 500);
-    if (sanitizedQuery.length === 0) {
+    const sanitizedQuery = query.trim().slice(0, 500);
+
+    const limit = Number(k);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       return context.res.json(
-        {
-          success: false,
-          error: "Search query cannot be empty",
-        },
+        { success: false, error: "k must be between 1 and 100" },
         400
       );
     }
 
-    // Validate k (number of results)
-    const numResults = parseInt(k);
-    if (isNaN(numResults) || numResults <= 0 || numResults > 100) {
-      return context.res.json(
-        {
-          success: false,
-          error: "k must be a positive integer between 1 and 100",
-        },
-        400
-      );
-    }
-
-    // Call semantic service
-    const semanticServiceUrl = context.env.SEMANTIC_SERVICE_URL;
-    const semanticServiceApiKey = context.env.SEMANTIC_SERVICE_API_KEY;
-
-    if (!semanticServiceUrl) {
-      return context.res.json(
-        {
-          success: false,
-          error: "Semantic service URL not configured",
-        },
-        500
-      );
-    }
-
-    let fileIds = [];
-    try {
-      const searchResponse = await fetch(`${semanticServiceUrl}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": semanticServiceApiKey || "",
-        },
-        body: JSON.stringify({
-          query: sanitizedQuery,
-          k: numResults,
+    /* ----------------------------------------------------
+     * Semantic search (UNTRUSTED input)
+     * -------------------------------------------------- */
+    const searchResponse = await fetch(`${SEMANTIC_SERVICE_URL}/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(SEMANTIC_SERVICE_API_KEY && {
+          "X-API-Key": SEMANTIC_SERVICE_API_KEY,
         }),
-      });
+      },
+      body: JSON.stringify({
+        query: sanitizedQuery,
+        k: limit,
+      }),
+    });
 
-      if (!searchResponse.ok) {
-        const errorData = await searchResponse
-          .json()
-          .catch(() => ({ detail: "Unknown error" }));
-        throw new Error(
-          errorData.detail || `Semantic service error: ${searchResponse.status}`
-        );
-      }
-
-      const searchResult = await searchResponse.json();
-      fileIds = searchResult.file_ids || [];
-    } catch (error) {
-      console.error("Error calling semantic service:", error);
-      return context.res.json(
-        {
-          success: false,
-          error: `Search failed: ${error.message}`,
-        },
-        500
-      );
+    if (!searchResponse.ok) {
+      throw new Error(`Semantic service error (${searchResponse.status})`);
     }
 
-    // If no results, return empty array
+    const semanticResult = await searchResponse.json();
+    const fileIds = Array.isArray(semanticResult.file_ids)
+      ? semanticResult.file_ids
+      : [];
+
     if (fileIds.length === 0) {
       return context.res.json({
         success: true,
@@ -172,45 +109,38 @@ export default async function (context, req) {
       });
     }
 
-    // Fetch file metadata from database for each fileId
-    const collectionId = context.env.FILES_COLLECTION_ID || "files";
-    const databaseId = context.env.APPWRITE_DATABASE_ID || "default";
+    /* ----------------------------------------------------
+     * Fetch metadata in ONE query
+     * -------------------------------------------------- */
+    const client = new Client()
+      .setEndpoint(APPWRITE_FUNCTION_ENDPOINT)
+      .setProject(APPWRITE_FUNCTION_PROJECT_ID)
+      .setKey(APPWRITE_FUNCTION_API_KEY);
 
-    const results = [];
+    const databases = new Databases(client);
 
-    for (const fileId of fileIds) {
-      try {
-        // Query by fileId and userId (ensure user owns the file)
-        const documents = await databases.listDocuments(
-          databaseId,
-          collectionId,
-          [Query.equal("fileId", fileId), Query.equal("userId", userId)],
-          1 // Limit to 1 result
-        );
+    const docs = await databases.listDocuments(
+      APPWRITE_DATABASE_ID,
+      FILES_COLLECTION_ID,
+      [
+        Query.equal("fileId", fileIds),
+        Query.equal("userId", userId),
+        Query.equal("indexed", true),
+        Query.equal("status", "indexed"),
+      ],
+      limit
+    );
 
-        if (documents.documents.length > 0) {
-          const doc = documents.documents[0];
-
-          // Only include indexed files
-          if (doc.indexed === true && doc.status === "indexed") {
-            results.push({
-              fileId: doc.fileId,
-              name: doc.name,
-              mimeType: doc.mimeType,
-              size: doc.size,
-              storagePath: doc.storagePath,
-              createdAt: doc.createdAt,
-              description: doc.description || "",
-              tags: doc.tags || [],
-              folderId: doc.folderId || null,
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching metadata for fileId ${fileId}:`, error);
-        // Continue with other files
-      }
-    }
+    const results = docs.documents.map((doc) => ({
+      fileId: doc.fileId,
+      name: doc.name,
+      mimeType: doc.mimeType,
+      size: doc.size,
+      createdAt: doc.createdAt,
+      description: doc.description ?? "",
+      tags: doc.tags ?? [],
+      folderId: doc.folderId ?? null,
+    }));
 
     return context.res.json({
       success: true,
@@ -219,12 +149,9 @@ export default async function (context, req) {
       count: results.length,
     });
   } catch (error) {
-    console.error("Error in search function:", error);
+    console.error("search error:", error);
     return context.res.json(
-      {
-        success: false,
-        error: error.message || "Internal server error",
-      },
+      { success: false, error: error.message ?? "Internal server error" },
       500
     );
   }

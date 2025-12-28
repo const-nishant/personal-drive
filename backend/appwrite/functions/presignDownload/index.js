@@ -1,151 +1,185 @@
-// Presign Download Function
-// Generates pre-signed URLs for secure S3 downloads on-demand
-// Validates user ownership before generating URL
-
 import { Client, Databases, Query } from "node-appwrite";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /**
- * @param {object} context - The Appwrite function context
- * @param {object} req - The request object
+ * Appwrite Function: presignDownload
+ * - Validates ownership
+ * - Ensures file is indexed
+ * - Generates time-bound S3 download URL
  */
-export default async function (context, req) {
+export default async function presignDownload(context, req) {
   try {
-    // Initialize Appwrite client
-    const client = new Client()
-      .setEndpoint(context.APPWRITE_FUNCTION_ENDPOINT)
-      .setProject(context.APPWRITE_FUNCTION_PROJECT_ID)
-      .setKey(context.APPWRITE_FUNCTION_API_KEY);
-
-    const databases = new Databases(client);
-
-    // Get user ID from request
-    const userId = req.headers["x-appwrite-user-id"] || req.body?.userId;
-    if (!userId) {
+    const request = req ?? context.req;
+    if (!request) {
       return context.res.json(
-        {
-          success: false,
-          error: "User authentication required",
-        },
-        401
-      );
-    }
-
-    // Parse request body
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const { fileId } = body;
-
-    if (!fileId) {
-      return context.res.json(
-        {
-          success: false,
-          error: "fileId is required",
-        },
+        { success: false, error: "Invalid execution context" },
         400
       );
     }
 
-    // Validate fileId format
-    if (!/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+    /* ----------------------------------------------------
+     * Environment validation
+     * -------------------------------------------------- */
+    const {
+      APPWRITE_FUNCTION_ENDPOINT,
+      APPWRITE_FUNCTION_PROJECT_ID,
+      APPWRITE_FUNCTION_API_KEY,
+      APPWRITE_DATABASE_ID = "6950ec6400349318ed79",
+      FILES_COLLECTION_ID = "6950ec640034b7a80a2d",
+
+      S3_ENDPOINT,
+      S3_ACCESS_KEY_ID,
+      S3_SECRET_ACCESS_KEY,
+      S3_BUCKET_NAME,
+      S3_REGION,
+    } = process.env;
+
+    if (
+      !APPWRITE_FUNCTION_ENDPOINT ||
+      !APPWRITE_FUNCTION_PROJECT_ID ||
+      !APPWRITE_FUNCTION_API_KEY ||
+      !S3_ENDPOINT ||
+      !S3_ACCESS_KEY_ID ||
+      !S3_SECRET_ACCESS_KEY ||
+      !S3_BUCKET_NAME
+    ) {
       return context.res.json(
-        {
-          success: false,
-          error: "Invalid fileId format",
-        },
-        400
-      );
-    }
-
-    const collectionId = context.env.FILES_COLLECTION_ID || "files";
-    const databaseId = context.env.APPWRITE_DATABASE_ID || "default";
-
-    // Fetch file metadata and verify ownership
-    let document;
-    try {
-      const documents = await databases.listDocuments(
-        databaseId,
-        collectionId,
-        [Query.equal("fileId", fileId), Query.equal("userId", userId)],
-        1
-      );
-
-      if (documents.documents.length === 0) {
-        return context.res.json(
-          {
-            success: false,
-            error: "File not found or unauthorized",
-          },
-          404
-        );
-      }
-
-      document = documents.documents[0];
-    } catch (error) {
-      console.error("Error fetching file metadata:", error);
-      return context.res.json(
-        {
-          success: false,
-          error: "Failed to fetch file metadata",
-        },
+        { success: false, error: "Server configuration incomplete" },
         500
       );
     }
 
-    const { storagePath, mimeType, name } = document;
+    /* ----------------------------------------------------
+     * Request parsing
+     * -------------------------------------------------- */
+    context.log("RAW REQUEST:", {
+      hasReq: !!request,
+      hasBodyJson: !!request?.bodyJson,
+      bodyJsonType: typeof request?.bodyJson,
+      headers: request?.headers,
+    });
 
-    if (!storagePath) {
+    let body = {};
+    if (request?.bodyJson && typeof request.bodyJson === "object") {
+      body = request.bodyJson;
+      if (typeof body.data === "string") {
+        body = JSON.parse(body.data);
+      } else if (typeof body.data === "object") {
+        body = body.data;
+      }
+    }
+
+    const { fileId, userId: bodyUserId } = body;
+    const userId = request.headers?.["x-appwrite-user-id"] ?? bodyUserId;
+
+    if (!userId) {
       return context.res.json(
-        {
-          success: false,
-          error: "Storage path not found in metadata",
-        },
+        { success: false, error: "Authentication required" },
+        401
+      );
+    }
+
+    if (!fileId || !/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+      return context.res.json(
+        { success: false, error: "Invalid or missing fileId" },
         400
       );
     }
 
-    // Initialize S3 client
-    const s3Client = new S3Client({
-      endpoint: context.env.S3_ENDPOINT,
-      region: context.env.S3_REGION || "us-east-1",
+    /* ----------------------------------------------------
+     * Appwrite client
+     * -------------------------------------------------- */
+    const client = new Client()
+      .setEndpoint(APPWRITE_FUNCTION_ENDPOINT)
+      .setProject(APPWRITE_FUNCTION_PROJECT_ID)
+      .setKey(APPWRITE_FUNCTION_API_KEY);
+
+    const databases = new Databases(client);
+
+    /* ----------------------------------------------------
+     * Fetch file + verify ownership
+     * -------------------------------------------------- */
+    const docs = await databases.listDocuments(
+      APPWRITE_DATABASE_ID,
+      FILES_COLLECTION_ID,
+      [Query.equal("fileId", fileId), Query.equal("userId", userId)]
+    );
+
+    if (docs.documents.length === 0) {
+      return context.res.json(
+        { success: false, error: "File not found or unauthorized" },
+        404
+      );
+    }
+
+    const file = docs.documents[0];
+
+    /* ----------------------------------------------------
+     * Status guard (CRITICAL)
+     * -------------------------------------------------- */
+    if (file.status !== "indexed") {
+      return context.res.json(
+        {
+          success: false,
+          error: "File is not ready for download",
+        },
+        409
+      );
+    }
+
+    if (!file.storagePath) {
+      return context.res.json(
+        { success: false, error: "Missing storagePath" },
+        500
+      );
+    }
+
+    /* ----------------------------------------------------
+     * S3 presigned download
+     * -------------------------------------------------- */
+    const s3 = new S3Client({
+      endpoint: S3_ENDPOINT,
+      region: S3_REGION ?? "us-east-1",
       credentials: {
-        accessKeyId: context.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: context.env.S3_SECRET_ACCESS_KEY,
+        accessKeyId: S3_ACCESS_KEY_ID,
+        secretAccessKey: S3_SECRET_ACCESS_KEY,
       },
       forcePathStyle: true,
     });
 
-    // Create presigned URL for download (1 hour expiration)
+    const expiresIn = 60 * 60; // 1 hour
+
+    const safeFilename = (file.name ?? fileId)
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .slice(0, 255);
+
     const command = new GetObjectCommand({
-      Bucket: context.env.S3_BUCKET_NAME,
-      Key: storagePath,
-      ResponseContentDisposition: `attachment; filename="${name}"`,
-      ResponseContentType: mimeType,
+      Bucket: S3_BUCKET_NAME,
+      Key: file.storagePath,
+      ResponseContentDisposition: `attachment; filename="${safeFilename}"`,
+      ResponseContentType: file.mimeType ?? "application/octet-stream",
     });
 
-    const presignedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 3600, // 1 hour
+    const presignedUrl = await getSignedUrl(s3, command, {
+      expiresIn,
     });
 
     return context.res.json({
       success: true,
       fileId,
       presignedUrl,
-      expiresIn: 3600, // 1 hour in seconds
+      expiresIn,
       metadata: {
         fileId,
-        name,
-        mimeType,
-        size: document.size,
+        name: file.name,
+        mimeType: file.mimeType,
       },
     });
   } catch (error) {
-    console.error("Error in presignDownload function:", error);
+    console.error("presignDownload error:", error);
     return context.res.json(
-      {
-        success: false,
-        error: error.message || "Internal server error",
-      },
+      { success: false, error: error.message ?? "Internal server error" },
       500
     );
   }

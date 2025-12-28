@@ -1,0 +1,405 @@
+{
+  "info": {
+    "_postman_id": "personal-drive-api-collection",
+    "name": "Personal Drive API",
+    "description": "Complete API collection for Personal Drive system testing. Based on test-personal-drive.ps1 and TESTING.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Presign Upload",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Execution completed successfully\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"completed\");",
+              "});",
+              "",
+              "pm.test(\"Response contains function result\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.responseBody).to.exist;",
+              "    ",
+              "    var functionResponse = JSON.parse(jsonData.responseBody);",
+              "    pm.expect(functionResponse.success).to.be.true;",
+              "    pm.expect(functionResponse.fileId).to.exist;",
+              "    pm.expect(functionResponse.upload).to.exist;",
+              "    ",
+              "    // Save fileId and upload URL for next requests",
+              "    pm.collectionVariables.set(\"fileId\", functionResponse.fileId);",
+              "    if (functionResponse.upload.url) {",
+              "        pm.collectionVariables.set(\"presignedUploadUrl\", functionResponse.upload.url);",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Appwrite-Project",
+            "value": "{{projectId}}",
+            "type": "text"
+          },
+          {
+            "key": "x-appwrite-user-id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"data\": \"{\\\"name\\\":\\\"test.txt\\\",\\\"size\\\":25,\\\"mimeType\\\":\\\"text/plain\\\"}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{appwriteEndpoint}}/functions/presignUpload/executions",
+          "host": ["{{appwriteEndpoint}}"],
+          "path": ["functions", "presignUpload", "executions"]
+        },
+        "description": "Request a presigned URL for uploading a file to S3. Returns fileId and presigned upload URL."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Upload File to S3",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// This request requires a file upload",
+              "// In Postman, you need to:",
+              "// 1. Change body type to 'binary'",
+              "// 2. Select a test file",
+              "// 3. Use the presignedUploadUrl from previous request",
+              "",
+              "// Validate presigned URL is available",
+              "var uploadUrl = pm.collectionVariables.get(\"presignedUploadUrl\");",
+              "if (!uploadUrl) {",
+              "    throw new Error(\"Presigned upload URL not found. Run '1. Presign Upload' first.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Upload successful\", function () {",
+              "    // S3 typically returns 200 OK for successful uploads",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "{{mimeType}}",
+            "type": "text",
+            "description": "Should match the mimeType from presignUpload"
+          }
+        ],
+        "body": {
+          "mode": "binary",
+          "binary": []
+        },
+        "url": {
+          "raw": "{{presignedUploadUrl}}"
+        },
+        "description": "Upload file to S3 using the presigned URL from step 1.\n\n**Note:** In Postman:\n1. Change body type to 'binary'\n2. Select your test file\n3. The URL should be the presignedUploadUrl from step 1"
+      },
+      "response": []
+    },
+    {
+      "name": "3. Index File",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"File indexed successfully\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"completed\");",
+              "    ",
+              "    var functionResponse = JSON.parse(jsonData.responseBody);",
+              "    pm.expect(functionResponse.success).to.be.true;",
+              "    pm.expect(functionResponse.indexed).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Appwrite-Project",
+            "value": "{{projectId}}",
+            "type": "text"
+          },
+          {
+            "key": "x-appwrite-user-id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"fileId\": \"{{fileId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{appwriteEndpoint}}/functions/indexFile/executions",
+          "host": ["{{appwriteEndpoint}}"],
+          "path": ["functions", "indexFile", "executions"]
+        },
+        "description": "Index the uploaded file for semantic search. This extracts text content and generates embeddings."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Search Files",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Search completed successfully\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"completed\");",
+              "    ",
+              "    var functionResponse = JSON.parse(jsonData.responseBody);",
+              "    pm.expect(functionResponse.success).to.be.true;",
+              "    pm.expect(functionResponse.results).to.be.an('array');",
+              "});",
+              "",
+              "pm.test(\"Results contain file metadata\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    var functionResponse = JSON.parse(jsonData.responseBody);",
+              "    ",
+              "    if (functionResponse.results.length > 0) {",
+              "        var firstResult = functionResponse.results[0];",
+              "        pm.expect(firstResult).to.have.property('fileId');",
+              "        pm.expect(firstResult).to.have.property('name');",
+              "        pm.expect(firstResult).to.have.property('mimeType');",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Appwrite-Project",
+            "value": "{{projectId}}",
+            "type": "text"
+          },
+          {
+            "key": "x-appwrite-user-id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"query\": \"test\",\n    \"k\": 5\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{appwriteEndpoint}}/functions/search/executions",
+          "host": ["{{appwriteEndpoint}}"],
+          "path": ["functions", "search", "executions"]
+        },
+        "description": "Search for files using semantic search. Returns files that match the query semantically."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Presign Download",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Download URL generated\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"completed\");",
+              "    ",
+              "    var functionResponse = JSON.parse(jsonData.responseBody);",
+              "    pm.expect(functionResponse.success).to.be.true;",
+              "    pm.expect(functionResponse.presignedUrl).to.exist;",
+              "    ",
+              "    // Save download URL for next request",
+              "    pm.collectionVariables.set(\"presignedDownloadUrl\", functionResponse.presignedUrl);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Appwrite-Project",
+            "value": "{{projectId}}",
+            "type": "text"
+          },
+          {
+            "key": "x-appwrite-user-id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"fileId\": \"{{fileId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{appwriteEndpoint}}/functions/presignDownload/executions",
+          "host": ["{{appwriteEndpoint}}"],
+          "path": ["functions", "presignDownload", "executions"]
+        },
+        "description": "Request a presigned URL for downloading a file from S3. Returns a time-limited download URL."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Download File from S3",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Download successful\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 206]);",
+              "});",
+              "",
+              "pm.test(\"File content received\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.exist;",
+              "    pm.expect(pm.response.headers.get(\"Content-Length\")).to.exist;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{presignedDownloadUrl}}"
+        },
+        "description": "Download file from S3 using the presigned URL from step 5.\n\n**Note:** The URL should be the presignedDownloadUrl from step 5. In Postman, you can save the response to a file."
+      },
+      "response": []
+    }
+  ],
+  "event": [],
+  "variable": [
+    {
+      "key": "appwriteEndpoint",
+      "value": "https://sgp.cloud.appwrite.io/v1",
+      "type": "string"
+    },
+    {
+      "key": "projectId",
+      "value": "694f94f00016c4a31254",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "6950c2440001ee20a565",
+      "type": "string"
+    },
+    {
+      "key": "mimeType",
+      "value": "text/plain",
+      "type": "string"
+    },
+    {
+      "key": "fileId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "presignedUploadUrl",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "presignedDownloadUrl",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
