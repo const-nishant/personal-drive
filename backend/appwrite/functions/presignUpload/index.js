@@ -12,6 +12,11 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
  */
 export default async function (context, req) {
   try {
+    // Handle case where req might be undefined (HTTP execution)
+    if (!req) {
+      req = context.req || {};
+    }
+
     // Initialize Appwrite client
     const client = new Client()
       .setEndpoint(context.APPWRITE_FUNCTION_ENDPOINT)
@@ -20,8 +25,74 @@ export default async function (context, req) {
 
     const databases = new Databases(client);
 
-    // Get user ID from request (should be set by Appwrite auth)
-    const userId = req.headers["x-appwrite-user-id"] || req.body?.userId;
+    // Parse request body
+    // Appwrite provides bodyJson for HTTP executions via API
+    // The data is passed in req.bodyJson.data or context.req.bodyJson.data
+    let requestBody = req?.bodyJson || context.req?.bodyJson || {};
+
+    // If bodyJson.data exists (HTTP execution format), extract it
+    if (requestBody && typeof requestBody === "object" && requestBody.data !== undefined) {
+      // Handle both string and object formats for data
+      if (typeof requestBody.data === "string") {
+        try {
+          requestBody = JSON.parse(requestBody.data);
+        } catch (e) {
+          context.log("Failed to parse requestBody.data as JSON:", e.message);
+          requestBody = {};
+        }
+      } else if (typeof requestBody.data === "object") {
+        // data is already an object
+        requestBody = requestBody.data;
+      }
+    } else if (!requestBody || (typeof requestBody === "object" && Object.keys(requestBody).length === 0)) {
+      // Fallback: try to parse from body string or other locations
+      const bodyString = req?.body || context.req?.body || "";
+      if (bodyString && typeof bodyString === "string" && bodyString.trim()) {
+        try {
+          requestBody = JSON.parse(bodyString);
+          // After parsing, check if it has a data property
+          if (requestBody && typeof requestBody === "object" && requestBody.data) {
+            requestBody = typeof requestBody.data === "string" 
+              ? JSON.parse(requestBody.data) 
+              : requestBody.data;
+          }
+        } catch (e) {
+          context.log("Failed to parse body string as JSON:", e.message);
+          requestBody = {};
+        }
+      } else {
+        requestBody = {};
+      }
+    }
+
+    // Debug logging (remove in production)
+    context.log("Parsed requestBody:", JSON.stringify(requestBody));
+
+    const {
+      name,
+      size,
+      mimeType,
+      folderId,
+      description,
+      tags,
+      userId: bodyUserId,
+    } = requestBody || {};
+
+    // Use userId from body if not in headers
+    // Check multiple header locations for user ID
+    const headerUserId =
+      req?.headers?.["x-appwrite-user-id"] ||
+      context.req?.headers?.["x-appwrite-user-id"] ||
+      req?.headers?.["X-Appwrite-User-Id"] ||
+      context.req?.headers?.["X-Appwrite-User-Id"];
+
+    const userId = headerUserId || bodyUserId;
+
+    // Debug logging
+    context.log(
+      `userId from headers: ${headerUserId}, from body: ${bodyUserId}, final: ${userId}`
+    );
+
     if (!userId) {
       return context.res.json(
         {
@@ -31,10 +102,6 @@ export default async function (context, req) {
         401
       );
     }
-
-    // Parse request body
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const { name, size, mimeType, folderId, description, tags } = body;
 
     // Validate required fields
     if (!name || !size || !mimeType) {

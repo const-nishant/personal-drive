@@ -10,6 +10,11 @@ import { Client, Databases, Query } from "node-appwrite";
  */
 export default async function (context, req) {
   try {
+    // Handle case where req might be undefined (HTTP execution)
+    if (!req) {
+      req = context.req || {};
+    }
+
     // Initialize Appwrite client
     const client = new Client()
       .setEndpoint(context.APPWRITE_FUNCTION_ENDPOINT)
@@ -18,8 +23,50 @@ export default async function (context, req) {
 
     const databases = new Databases(client);
 
+    // Parse request body
+    // Appwrite provides bodyJson for HTTP executions via API
+    // The data is passed in req.bodyJson.data or context.req.bodyJson.data
+    let requestBody = req?.bodyJson || context.req?.bodyJson || {};
+
+    // If bodyJson.data exists (HTTP execution format), extract it
+    if (requestBody && typeof requestBody === "object" && requestBody.data !== undefined) {
+      // Handle both string and object formats for data
+      if (typeof requestBody.data === "string") {
+        try {
+          requestBody = JSON.parse(requestBody.data);
+        } catch (e) {
+          context.log("Failed to parse requestBody.data as JSON:", e.message);
+          requestBody = {};
+        }
+      } else if (typeof requestBody.data === "object") {
+        // data is already an object
+        requestBody = requestBody.data;
+      }
+    } else if (!requestBody || (typeof requestBody === "object" && Object.keys(requestBody).length === 0)) {
+      // Fallback: try to parse from body string
+      const bodyString = req?.body || context.req?.body || "";
+      if (bodyString && typeof bodyString === "string" && bodyString.trim()) {
+        try {
+          requestBody = JSON.parse(bodyString);
+          // After parsing, check if it has a data property
+          if (requestBody && typeof requestBody === "object" && requestBody.data) {
+            requestBody = typeof requestBody.data === "string" 
+              ? JSON.parse(requestBody.data) 
+              : requestBody.data;
+          }
+        } catch (e) {
+          context.log("Failed to parse body string as JSON:", e.message);
+          requestBody = {};
+        }
+      } else {
+        requestBody = {};
+      }
+    }
+
+    const { query, k = 5, userId: bodyUserId } = requestBody;
+
     // Get user ID from request
-    const userId = req.headers["x-appwrite-user-id"] || req.body?.userId;
+    const userId = req?.headers?.["x-appwrite-user-id"] || bodyUserId;
     if (!userId) {
       return context.res.json(
         {
@@ -29,10 +76,6 @@ export default async function (context, req) {
         401
       );
     }
-
-    // Parse request body
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const { query, k = 5 } = body;
 
     // Validate query
     if (!query || typeof query !== "string" || !query.trim()) {
