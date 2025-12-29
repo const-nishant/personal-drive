@@ -39,18 +39,18 @@ ENV PATH=/root/.local/bin:$PATH
 COPY backend/semantic/ ./
 
 # Create index directory with proper permissions
-RUN mkdir -p /data/index && chmod 755 /data/index
+RUN mkdir -p /app/index && chmod 755 /app/index
 
 # Set environment variables
-ENV INDEX_DIR=/data/index
+ENV INDEX_DIR=/app/index
 ENV MODEL_NAME=all-MiniLM-L6-v2
 ENV EMBEDDING_DIM=384
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port
-EXPOSE 7860
+# Expose port (matches docker-compose.yml)
+EXPOSE 8000
 
 # Run the application
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
