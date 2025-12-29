@@ -7,12 +7,14 @@ This document outlines the security measures, best practices, and protocols for 
 ## Security Architecture
 
 ### Authentication & Authorization
-- **Appwrite Integration**: Leverages Appwrite's built-in authentication system
-- **JWT Tokens**: All API calls use short-lived JWT tokens
+- **Appwrite Integration**: Leverages Appwrite's built-in authentication system (via Flutter SDK)
+- **User Authentication**: Handled by Flutter Appwrite SDK (JWT tokens managed by SDK)
+- **API Key Authentication**: Python service requires `X-API-Key` header for all endpoints
+- **User Context**: User ID passed via `X-User-Id` header (set by Flutter after Appwrite auth)
 - **Single-User System**: Users can only access their own files and data
-- **Session Management**: Secure session handling with proper expiration
-- **ALL API endpoints MUST require authentication** (except health checks)
-- **Server API keys** for Appwrite Functions → Semantic Service communication
+- **Session Management**: Secure session handling with proper expiration (Appwrite SDK)
+- **ALL API endpoints MUST require authentication** (except `/health` and `/`)
+- **Appwrite API Key**: Used server-side only for Tables API operations
 
 ### Data Protection
 
@@ -53,12 +55,14 @@ This document outlines the security measures, best practices, and protocols for 
 - **Resource Limits**: CPU and memory constraints prevent abuse
 - **Dependency Scanning**: Regular security audits of npm packages
 
-#### Semantic Search Service
+#### Python Service (Unified Backend)
 - **Container Security**: Docker images built from minimal base images
 - **Network Isolation**: Services communicate through private networks
 - **Secret Management**: API keys stored in environment variables (.env)
-- **NO direct client access**: Only accessible via Appwrite Functions
+- **Direct client access**: Accessible directly from Flutter client (with API key authentication)
 - **Thread Safety**: Lock for FAISS index updates
+- **Input Validation**: All inputs validated and sanitized
+- **User Context Validation**: User ID verified for all user operations
 
 ## Security Best Practices
 
@@ -68,8 +72,10 @@ This document outlines the security measures, best practices, and protocols for 
 3. **Security Testing**: Automated vulnerability scanning
 4. **Secret Rotation**: Regular API key and credential updates
 5. **NEVER put secrets in client code**: All secrets server-side only
-6. **NEVER skip authentication**: All endpoints require authentication
-7. **NEVER allow direct client → S3 or client → Semantic Service**: Use Appwrite Functions
+6. **NEVER skip authentication**: All endpoints require authentication (API key + user context)
+7. **NEVER allow direct client → S3**: Presigned URLs only
+8. **ALWAYS validate user context**: Verify X-User-Id header matches authenticated user
+9. **ALWAYS use API key authentication**: Python service requires X-API-Key header
 
 ### Deployment
 1. **Environment Separation**: Distinct dev, staging, and production environments

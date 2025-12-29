@@ -45,17 +45,18 @@ Personal Drive is a single-user, private Google-Drive-like system with semantic 
 
 ## 🏗️ Architecture
 
-The system consists of four main components:
+The system consists of three main components:
 
 1. **Flutter Client (Thin)**: Cross-platform UI for Android and Desktop - handles only UI and API calls
-2. **Appwrite (Orchestrator)**: Authentication, metadata storage, and serverless function orchestration
-3. **Semantic Search Service (FastAPI)**: Python-based AI service for document indexing and search
+2. **Python Service (Unified Backend)**: FastAPI service handling all operations (file management, semantic search, S3 integration)
+3. **Appwrite (Authentication & Metadata)**: User authentication via SDK, metadata storage via Tables API
 4. **S3-Compatible Storage (B2/R2)**: File persistence layer
 
 **Key Architecture Principles:**
 - **Thin Client**: Flutter client has NO ML/AI processing
-- **Service Boundaries**: Client → Appwrite → Semantic Service → Storage (strict boundaries)
-- **Security**: No credentials exposed to client, presigned URLs only
+- **Unified Backend**: All business logic in Python service (no Appwrite Functions)
+- **Service Boundaries**: Client → Python Service → Appwrite Tables / S3 (direct communication)
+- **Security**: No credentials exposed to client, presigned URLs only, API key authentication
 - **Cost Optimization**: Only storage is recurring cost
 
 For detailed architecture information, see [ARCHITECTURE.md](./ARCHITECTURE.md).
@@ -71,10 +72,11 @@ For detailed architecture information, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - **permission_handler**: Runtime permissions
 
 ### Backend
-- **Appwrite**: Authentication, metadata database, and function orchestration
-- **Node.js**: Appwrite Functions for coordination
-- **Python 3.9+**: Semantic search service
-- **FastAPI**: Web framework for semantic service (NOT Flask)
+- **Appwrite**: Authentication (via SDK) and metadata storage (Tables API)
+- **Python 3.9+**: Unified backend service (all operations)
+- **FastAPI**: Web framework for Python service (NOT Flask)
+- **Appwrite Python SDK**: Tables API integration
+- **Boto3**: S3 operations (presigned URLs, file management)
 
 ### AI/ML (Server-Side Only)
 - **Sentence Transformers**: Document embedding generation
@@ -125,13 +127,30 @@ pip install -r requirements.txt
 4. **Configure S3 Storage**
    - Create bucket in Backblaze B2 or Cloudflare R2
    - Generate access keys
-   - Configure in Appwrite Functions environment variables
+   - Configure in Python service environment variables
 
-5. **Configure Flutter app**
+5. **Configure Python Service**
+   - Create `.env` file in `backend/semantic/`:
+     ```env
+     API_KEY=your-service-api-key
+     APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+     APPWRITE_PROJECT_ID=your-project-id
+     APPWRITE_API_KEY=your-appwrite-api-key
+     APPWRITE_DATABASE_ID=your-database-id
+     APPWRITE_TABLE_ID=your-table-id
+     S3_ENDPOINT=your-s3-endpoint
+     S3_ACCESS_KEY_ID=your-access-key
+     S3_SECRET_ACCESS_KEY=your-secret-key
+     S3_BUCKET_NAME=your-bucket-name
+     ```
+
+6. **Configure Flutter app**
    - Update `frontend/personal_drive/lib/core/config.dart`:
      - Set `appwriteEndpoint` to `https://cloud.appwrite.io/v1`
      - Set `appwriteProjectId` to your Appwrite Cloud project ID
-   - **NEVER include S3 credentials or API keys in Flutter code**
+     - Set `pythonServiceUrl` to your Python service URL
+     - Set `pythonServiceApiKey` to your Python service API key
+   - **NEVER include S3 credentials or Appwrite API keys in Flutter code**
 
 6. **Start the services**
 ```bash
