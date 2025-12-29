@@ -1,230 +1,344 @@
-import logging
-import os
-import pickle
-import secrets
-from threading import Lock
-from typing import List
+"""FastAPI application for Personal Drive Python Service."""
 
-import faiss
-from fastapi import FastAPI, HTTPException, Header, Depends
-from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
+import logging
+from typing import Annotated
+from fastapi import FastAPI, Depends, Query, HTTPException, status
+from fastapi.responses import JSONResponse
+
+# Import configuration and authentication
+from config import Config
+from auth import verify_api_key, get_user_id
+
+# Import services
+from services.file_service import FileService
+from services.semantic_indexer import SemanticIndexer
+
+# Import models
+from models.schemas import (
+    PresignUploadRequest,
+    PresignUploadResponse,
+    CompleteUploadRequest,
+    CompleteUploadResponse,
+    ListFilesResponse,
+    FileMetadata,
+    UpdateFileRequest,
+    UpdateFileResponse,
+    DeleteFileResponse,
+    DownloadUrlResponse,
+    SearchRequest,
+    SearchResponse,
+    HealthResponse,
+    StatsResponse,
+    APIInfoResponse,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
-INDEX_DIR = os.getenv("INDEX_DIR", "./index")
-INDEX_PATH = os.path.join(INDEX_DIR, "faiss.index")
-META_PATH = os.path.join(INDEX_DIR, "meta.pkl")
-MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384  # Dimension for all-MiniLM-L6-v2
+# Initialize FastAPI app
+app = FastAPI(
+    title="Personal Drive Python Service",
+    description="Unified backend service for file management and semantic search",
+    version="1.0.0"
+)
 
-# API Key Configuration
-# Read from environment variable, or generate one for development
-API_KEY_ENV = os.getenv("API_KEY") or os.getenv("SEMANTIC_SERVICE_API_KEY")
-if API_KEY_ENV:
-    API_KEY = API_KEY_ENV
-    logger.info("API key loaded from environment variable")
-else:
-    # Generate a random API key for development (32 bytes = 64 hex characters)
-    API_KEY = secrets.token_hex(32)
-    logger.warning(
-        f"⚠️  No API_KEY environment variable set. Generated API key for this session: {API_KEY}"
-    )
-    logger.warning(
-        "⚠️  Set API_KEY or SEMANTIC_SERVICE_API_KEY environment variable for production!"
-    )
-
-# --- Global State (initialized at startup) ---
-app = FastAPI(title="Semantic Search Service")
-model = None
-index = None
-id_map: List[str] = []  # FAISS index → file_id
-index_lock = Lock()
+# Initialize services (will be initialized on startup)
+file_service: FileService = None
+semantic_indexer: SemanticIndexer = None
 
 
-# --- Pydantic Models ---
-class IndexRequest(BaseModel):
-    file_id: str
-    text: str
-
-
-class SearchRequest(BaseModel):
-    query: str
-    k: int = 5
-
-
-class SearchResponse(BaseModel):
-    file_ids: List[str]
-
-
-# --- API Key Authentication ---
-async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")):
-    """Verify API key from request header."""
-    if x_api_key != API_KEY:
-        logger.warning(f"Invalid API key attempt: {x_api_key[:10]}...")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key. Provide X-API-Key header."
-        )
-    return x_api_key
-
-
-# --- Startup Event ---
 @app.on_event("startup")
 async def startup_event():
-    """Initialize model and index on startup."""
-    global model, index, id_map
+    """Initialize services on startup."""
+    global file_service, semantic_indexer
 
-    logger.info(f"Loading model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME)
+    # Validate configuration
+    if not Config.validate():
+        logger.error("Configuration validation failed. Please check environment variables.")
+        raise RuntimeError("Configuration validation failed")
 
-    # Create index directory if it doesn't exist
-    os.makedirs(INDEX_DIR, exist_ok=True)
-
-    # Load or create FAISS index
-    if os.path.exists(INDEX_PATH):
-        logger.info(f"Loading existing index from {INDEX_PATH}")
-        index = faiss.read_index(INDEX_PATH)
-
-        # Load id_map
-        if os.path.exists(META_PATH):
-            with open(META_PATH, "rb") as f:
-                id_map = pickle.load(f)
-            logger.info(f"Loaded {len(id_map)} indexed documents")
-        else:
-            logger.warning("Index exists but id_map not found. Starting fresh.")
-    else:
-        logger.info("Creating new FAISS index")
-        # Create FAISS index with L2 distance
-        index = faiss.IndexFlatL2(EMBEDDING_DIM)
-        logger.info("New index created successfully")
+    logger.info("Initializing services...")
+    file_service = FileService()
+    semantic_indexer = SemanticIndexer()
+    logger.info("Services initialized successfully")
 
 
-# --- Endpoints ---
-@app.get("/")
+# ==================== System Endpoints ====================
+
+@app.get("/", response_model=APIInfoResponse)
 async def root():
-    """Root endpoint with service information."""
+    """Root endpoint with API information."""
     return {
-        "service": "Personal Drive Semantic Search Service",
+        "service": "Personal Drive Python Service",
         "status": "running",
         "endpoints": {
             "health": "/health",
             "stats": "/stats",
-            "index": "/index",
-            "search": "/search"
+            "upload": {
+                "presign": "/api/v1/upload/presign",
+                "complete": "/api/v1/upload/complete"
+            },
+            "files": {
+                "list": "/api/v1/files",
+                "get": "/api/v1/files/{file_id}",
+                "update": "/api/v1/files/{file_id}",
+                "delete": "/api/v1/files/{file_id}",
+                "download": "/api/v1/files/{file_id}/download"
+            },
+            "search": "/api/v1/search"
         },
         "docs": "/docs"
     }
 
 
-@app.post("/index")
-async def index_document(req: IndexRequest, api_key: str = Depends(verify_api_key)):
-    """Index a document with its text content."""
-    global index, id_map
-
-    # Validation
-    if not req.file_id:
-        raise HTTPException(status_code=400, detail="file_id is required")
-
-    if not req.text or not req.text.strip():
-        raise HTTPException(status_code=400, detail="text cannot be empty")
-
-    # Check if already indexed
-    if req.file_id in id_map:
-        logger.info(f"Document {req.file_id} already indexed, skipping")
-        return {"status": "already_indexed"}
-
-    try:
-        # Generate embedding
-        embedding = model.encode(req.text.strip(), convert_to_numpy=True, normalize_embeddings=True).reshape(1, -1)
-
-        # Thread-safe index update
-        with index_lock:
-            # Add to FAISS index
-            index.add(embedding)
-
-            # Store metadata mapping
-            id_map.append(req.file_id)
-
-            # Persist to disk
-            faiss.write_index(index, INDEX_PATH)
-            with open(META_PATH, "wb") as f:
-                pickle.dump(id_map, f)
-
-        logger.info(f"Indexed document {req.file_id}")
-        return {"status": "indexed"}
-
-    except Exception as e:
-        logger.error(f"Indexing failed for {req.file_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
-
-
-@app.post("/search", response_model=SearchResponse)
-async def search_documents(req: SearchRequest, api_key: str = Depends(verify_api_key)):
-    """Search for similar documents."""
-    global index, id_map
-
-    # Validation
-    if not req.query or not req.query.strip():
-        raise HTTPException(status_code=400, detail="query cannot be empty")
-
-    if req.k <= 0:
-        raise HTTPException(status_code=400, detail="k must be positive")
-
-    # Check if index is initialized
-    if index is None or index.ntotal == 0:
-        return SearchResponse(file_ids=[])
-
-    try:
-        # Generate query embedding
-        query_embedding = model.encode(
-            req.query.strip(), convert_to_numpy=True, normalize_embeddings=True
-        ).reshape(1, -1)
-
-        # Search in FAISS (thread-safe read)
-        with index_lock:
-            distances, indices = index.search(query_embedding, min(req.k, index.ntotal))
-
-        # Map FAISS indices to file_ids
-        file_ids = []
-        for idx in indices[0]:
-            if idx >= 0 and idx < len(id_map):  # Valid index within bounds
-                file_ids.append(id_map[idx])
-
-        logger.info(
-            f"Search returned {len(file_ids)} results for query: {req.query[:50]}..."
-        )
-        return SearchResponse(file_ids=file_ids)
-
-    except Exception as e:
-        logger.error(f"Search failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
-
-
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    status = {
-        "status": "ok",
-        "model_loaded": model is not None,
-        "index_initialized": index is not None,
-        "index_size": index.ntotal if index else 0,
-        "documents_indexed": len(id_map),
-    }
-    return status
-
-
-@app.get("/stats")
-async def get_stats(api_key: str = Depends(verify_api_key)):
-    """Get service statistics."""
+    stats = semantic_indexer.get_stats()
     return {
-        "model": MODEL_NAME,
-        "embedding_dimension": EMBEDDING_DIM,
-        "index_size": index.ntotal if index else 0,
-        "documents_indexed": len(id_map),
-        "index_path": INDEX_PATH,
-        "meta_path": META_PATH,
+        "status": "ok",
+        "model_loaded": semantic_indexer.model is not None,
+        "index_initialized": semantic_indexer.index is not None,
+        "index_size": stats["index_size"],
+        "documents_indexed": stats["documents_indexed"],
     }
+
+
+@app.get("/stats", response_model=StatsResponse)
+async def get_stats(api_key: Annotated[str, Depends(verify_api_key)]):
+    """Get service statistics."""
+    stats = semantic_indexer.get_stats()
+    return {
+        "model": stats["model"],
+        "embedding_dimension": stats["embedding_dimension"],
+        "index_size": stats["index_size"],
+        "documents_indexed": stats["documents_indexed"],
+        "index_path": Config.get_index_path(),
+        "meta_path": Config.get_meta_path(),
+    }
+
+
+# ==================== File Upload Endpoints ====================
+
+@app.post("/api/v1/upload/presign", response_model=PresignUploadResponse)
+async def presign_upload(
+    request: PresignUploadRequest,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Generate presigned URL for file upload."""
+    try:
+        result = file_service.presign_upload(
+            user_id=user_id,
+            name=request.name,
+            size=request.size,
+            mime_type=request.mimeType,
+            folder_id=request.folderId,
+            description=request.description,
+            tags=request.tags,
+            upload_mode=request.uploadMode,
+            parts=request.parts,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate presigned URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate presigned URL"
+        )
+
+
+@app.post("/api/v1/upload/complete", response_model=CompleteUploadResponse)
+async def complete_upload(
+    request: CompleteUploadRequest,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Complete file upload, extract text, and index."""
+    try:
+        result = file_service.complete_upload(
+            user_id=user_id,
+            file_id=request.fileId,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to complete upload: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to complete upload"
+        )
+
+
+# ==================== File Management Endpoints ====================
+
+@app.get("/api/v1/files", response_model=ListFilesResponse)
+async def list_files(
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    folderId: str = Query(None),
+    mimeType: str = Query(None),
+):
+    """List user's files with pagination."""
+    try:
+        result = file_service.list_files(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            folder_id=folderId,
+            mime_type=mimeType,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to list files: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list files"
+        )
+
+
+@app.get("/api/v1/files/{file_id}", response_model=FileMetadata)
+async def get_file(
+    file_id: str,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Get file metadata by ID."""
+    try:
+        result = file_service.get_file(user_id=user_id, file_id=file_id)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get file"
+        )
+
+
+@app.put("/api/v1/files/{file_id}", response_model=UpdateFileResponse)
+async def update_file(
+    file_id: str,
+    request: UpdateFileRequest,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Update file metadata."""
+    try:
+        result = file_service.update_file(
+            user_id=user_id,
+            file_id=file_id,
+            name=request.name,
+            description=request.description,
+            tags=request.tags,
+            folder_id=request.folderId,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update file"
+        )
+
+
+@app.delete("/api/v1/files/{file_id}", response_model=DeleteFileResponse)
+async def delete_file(
+    file_id: str,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Delete a file and its metadata."""
+    try:
+        result = file_service.delete_file(user_id=user_id, file_id=file_id)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete file"
+        )
+
+
+@app.get("/api/v1/files/{file_id}/download", response_model=DownloadUrlResponse)
+async def get_download_url(
+    file_id: str,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+    expiresIn: int = Query(None, ge=60, le=86400),
+):
+    """Get presigned download URL for a file."""
+    try:
+        result = file_service.get_download_url(
+            user_id=user_id,
+            file_id=file_id,
+            expires_in=expiresIn,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get download URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get download URL"
+        )
+
+
+# ==================== Search Endpoint ====================
+
+@app.post("/api/v1/search", response_model=SearchResponse)
+async def search(
+    request: SearchRequest,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    user_id: Annotated[str, Depends(get_user_id)],
+):
+    """Perform semantic search across user's files."""
+    try:
+        result = file_service.search_files(
+            user_id=user_id,
+            query=request.query,
+            k=request.k,
+            folder_id=request.folderId,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Search failed"
+        )
+
+
+# ==================== Error Handlers ====================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc: HTTPException):
+    """Handle HTTP exceptions."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc: Exception):
+    """Handle general exceptions."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error"}
+    )

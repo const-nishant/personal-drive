@@ -6,3 +6,14 @@ sentence-transformers
 faiss-cpu
 numpy
 pydantic
+# Appwrite SDK for database operations
+appwrite>=4.0.0
+# AWS SDK for S3 operations (presigned URLs, file operations)
+boto3>=1.34.0
+# PDF text extraction
+PyPDF2>=3.0.0
+# DOCX text extraction
+mammoth>=1.6.0
+# Additional utilities
+python-multipart
+python-dotenv
