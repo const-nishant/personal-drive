@@ -1,390 +1,797 @@
 {
   "info": {
-    "_postman_id": "personal-drive-api-collection",
-    "name": "Personal Drive API",
-    "description": "Complete API collection for Personal Drive system testing. Based on test-personal-drive.ps1 and TESTING.md",
+    "_postman_id": "personal-drive-python-service",
+    "name": "Personal Drive Python Service API",
+    "description": "Complete API collection for testing the Personal Drive Python Service (FastAPI). Based on API.md and app.py",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "1. Presign Upload",
-      "event": [
+      "name": "System Endpoints",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Status code is 200\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "",
-              "pm.test(\"Execution completed successfully\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.status).to.eql(\"completed\");",
-              "});",
-              "",
-              "pm.test(\"Response contains function result\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.responseBody).to.exist;",
-              "    ",
-              "    var functionResponse = JSON.parse(jsonData.responseBody);",
-              "    pm.expect(functionResponse.success).to.be.true;",
-              "    pm.expect(functionResponse.fileId).to.exist;",
-              "    pm.expect(functionResponse.upload).to.exist;",
-              "    ",
-              "    // Save fileId and upload URL for next requests",
-              "    pm.collectionVariables.set(\"fileId\", functionResponse.fileId);",
-              "    if (functionResponse.upload.url) {",
-              "        pm.collectionVariables.set(\"presignedUploadUrl\", functionResponse.upload.url);",
-              "    }",
-              "});"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "X-Appwrite-Project",
-            "value": "{{projectId}}",
-            "type": "text"
-          },
-          {
-            "key": "x-appwrite-user-id",
-            "value": "{{userId}}",
-            "type": "text"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n    \"data\": \"{\\\"name\\\":\\\"test.txt\\\",\\\"size\\\":25,\\\"mimeType\\\":\\\"text/plain\\\"}\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "name": "1. Get API Info",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains service info\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.service).to.eql(\"Personal Drive Python Service\");",
+                  "    pm.expect(jsonData.status).to.eql(\"running\");",
+                  "    pm.expect(jsonData.endpoints).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
             }
-          }
-        },
-        "url": {
-          "raw": "{{appwriteEndpoint}}/functions/presignUpload/executions",
-          "host": ["{{appwriteEndpoint}}"],
-          "path": ["functions", "presignUpload", "executions"]
-        },
-        "description": "Request a presigned URL for uploading a file to S3. Returns fileId and presigned upload URL."
-      },
-      "response": []
-    },
-    {
-      "name": "2. Upload File to S3",
-      "event": [
-        {
-          "listen": "prerequest",
-          "script": {
-            "exec": [
-              "// This request requires a file upload",
-              "// In Postman, you need to:",
-              "// 1. Change body type to 'binary'",
-              "// 2. Select a test file",
-              "// 3. Use the presignedUploadUrl from previous request",
-              "",
-              "// Validate presigned URL is available",
-              "var uploadUrl = pm.collectionVariables.get(\"presignedUploadUrl\");",
-              "if (!uploadUrl) {",
-              "    throw new Error(\"Presigned upload URL not found. Run '1. Presign Upload' first.\");",
-              "}"
-            ],
-            "type": "text/javascript"
-          }
-        },
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Upload successful\", function () {",
-              "    // S3 typically returns 200 OK for successful uploads",
-              "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
-              "});"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "PUT",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "{{mimeType}}",
-            "type": "text",
-            "description": "Should match the mimeType from presignUpload"
-          }
-        ],
-        "body": {
-          "mode": "binary",
-          "binary": []
-        },
-        "url": {
-          "raw": "{{presignedUploadUrl}}"
-        },
-        "description": "Upload file to S3 using the presigned URL from step 1.\n\n**Note:** In Postman:\n1. Change body type to 'binary'\n2. Select your test file\n3. The URL should be the presignedUploadUrl from step 1"
-      },
-      "response": []
-    },
-    {
-      "name": "3. Index File",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Status code is 200\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "",
-              "pm.test(\"File indexed successfully\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.status).to.eql(\"completed\");",
-              "    ",
-              "    var functionResponse = JSON.parse(jsonData.responseBody);",
-              "    pm.expect(functionResponse.success).to.be.true;",
-              "    pm.expect(functionResponse.indexed).to.be.true;",
-              "});"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": [""]
+            },
+            "description": "Get API information and available endpoints. No authentication required."
           },
-          {
-            "key": "X-Appwrite-Project",
-            "value": "{{projectId}}",
-            "type": "text"
-          },
-          {
-            "key": "x-appwrite-user-id",
-            "value": "{{userId}}",
-            "type": "text"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n    \"fileId\": \"{{fileId}}\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "response": []
+        },
+        {
+          "name": "2. Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Health check response is valid\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"ok\");",
+                  "    pm.expect(jsonData.model_loaded).to.be.a('boolean');",
+                  "    pm.expect(jsonData.index_initialized).to.be.a('boolean');",
+                  "    pm.expect(jsonData.index_size).to.be.a('number');",
+                  "    pm.expect(jsonData.documents_indexed).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
             }
-          }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/health",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Health check endpoint. No authentication required."
+          },
+          "response": []
         },
-        "url": {
-          "raw": "{{appwriteEndpoint}}/functions/indexFile/executions",
-          "host": ["{{appwriteEndpoint}}"],
-          "path": ["functions", "indexFile", "executions"]
-        },
-        "description": "Index the uploaded file for semantic search. This extracts text content and generates embeddings."
-      },
-      "response": []
-    },
-    {
-      "name": "4. Search Files",
-      "event": [
         {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Status code is 200\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "",
-              "pm.test(\"Search completed successfully\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.status).to.eql(\"completed\");",
-              "    ",
-              "    var functionResponse = JSON.parse(jsonData.responseBody);",
-              "    pm.expect(functionResponse.success).to.be.true;",
-              "    pm.expect(functionResponse.results).to.be.an('array');",
-              "});",
-              "",
-              "pm.test(\"Results contain file metadata\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    var functionResponse = JSON.parse(jsonData.responseBody);",
-              "    ",
-              "    if (functionResponse.results.length > 0) {",
-              "        var firstResult = functionResponse.results[0];",
-              "        pm.expect(firstResult).to.have.property('fileId');",
-              "        pm.expect(firstResult).to.have.property('name');",
-              "        pm.expect(firstResult).to.have.property('mimeType');",
-              "    }",
-              "});"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "X-Appwrite-Project",
-            "value": "{{projectId}}",
-            "type": "text"
-          },
-          {
-            "key": "x-appwrite-user-id",
-            "value": "{{userId}}",
-            "type": "text"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n    \"query\": \"test\",\n    \"k\": 5\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "name": "3. Get Stats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Stats response is valid\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.model).to.exist;",
+                  "    pm.expect(jsonData.embedding_dimension).to.be.a('number');",
+                  "    pm.expect(jsonData.index_size).to.be.a('number');",
+                  "    pm.expect(jsonData.documents_indexed).to.be.a('number');",
+                  "    pm.expect(jsonData.index_path).to.exist;",
+                  "    pm.expect(jsonData.meta_path).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
             }
-          }
-        },
-        "url": {
-          "raw": "{{appwriteEndpoint}}/functions/search/executions",
-          "host": ["{{appwriteEndpoint}}"],
-          "path": ["functions", "search", "executions"]
-        },
-        "description": "Search for files using semantic search. Returns files that match the query semantically."
-      },
-      "response": []
-    },
-    {
-      "name": "5. Presign Download",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Status code is 200\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "",
-              "pm.test(\"Download URL generated\", function () {",
-              "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.status).to.eql(\"completed\");",
-              "    ",
-              "    var functionResponse = JSON.parse(jsonData.responseBody);",
-              "    pm.expect(functionResponse.success).to.be.true;",
-              "    pm.expect(functionResponse.presignedUrl).to.exist;",
-              "    ",
-              "    // Save download URL for next request",
-              "    pm.collectionVariables.set(\"presignedDownloadUrl\", functionResponse.presignedUrl);",
-              "});"
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
             ],
-            "type": "text/javascript"
-          }
+            "url": {
+              "raw": "{{pythonServiceUrl}}/stats",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["stats"]
+            },
+            "description": "Get service statistics. Requires API key authentication."
+          },
+          "response": []
         }
       ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "X-Appwrite-Project",
-            "value": "{{projectId}}",
-            "type": "text"
-          },
-          {
-            "key": "x-appwrite-user-id",
-            "value": "{{userId}}",
-            "type": "text"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n    \"fileId\": \"{{fileId}}\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+      "description": "System endpoints for health checks and service information"
+    },
+    {
+      "name": "File Upload Flow",
+      "item": [
+        {
+          "name": "1. Presign Upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains fileId and upload URL\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.fileId).to.exist;",
+                  "    pm.expect(jsonData.upload).to.exist;",
+                  "    pm.expect(jsonData.upload.url).to.exist;",
+                  "    ",
+                  "    // Save fileId and upload URL for next requests",
+                  "    pm.collectionVariables.set(\"fileId\", jsonData.fileId);",
+                  "    pm.collectionVariables.set(\"presignedUploadUrl\", jsonData.upload.url);",
+                  "    ",
+                  "    if (jsonData.upload.mode === 'multipart') {",
+                  "        pm.collectionVariables.set(\"uploadId\", jsonData.upload.uploadId);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
             }
-          }
-        },
-        "url": {
-          "raw": "{{appwriteEndpoint}}/functions/presignDownload/executions",
-          "host": ["{{appwriteEndpoint}}"],
-          "path": ["functions", "presignDownload", "executions"]
-        },
-        "description": "Request a presigned URL for downloading a file from S3. Returns a time-limited download URL."
-      },
-      "response": []
-    },
-    {
-      "name": "6. Download File from S3",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Download successful\", function () {",
-              "    pm.expect(pm.response.code).to.be.oneOf([200, 206]);",
-              "});",
-              "",
-              "pm.test(\"File content received\", function () {",
-              "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.exist;",
-              "    pm.expect(pm.response.headers.get(\"Content-Length\")).to.exist;",
-              "});"
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
             ],
-            "type": "text/javascript"
-          }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"test.txt\",\n    \"size\": 25,\n    \"mimeType\": \"text/plain\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/upload/presign",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "upload", "presign"]
+            },
+            "description": "Generate a presigned URL for file upload. Returns fileId and presigned upload URL."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Upload File to S3",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate presigned URL is available",
+                  "var uploadUrl = pm.collectionVariables.get(\"presignedUploadUrl\");",
+                  "if (!uploadUrl) {",
+                  "    throw new Error(\"Presigned upload URL not found. Run '1. Presign Upload' first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Upload successful\", function () {",
+                  "    // S3 typically returns 200 OK for successful uploads",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "{{mimeType}}",
+                "type": "text",
+                "description": "Should match the mimeType from presignUpload"
+              }
+            ],
+            "body": {
+              "mode": "binary",
+              "binary": []
+            },
+            "url": {
+              "raw": "{{presignedUploadUrl}}"
+            },
+            "description": "Upload file to S3 using the presigned URL from step 1.\n\n**Note:** In Postman:\n1. Change body type to 'binary'\n2. Select your test file\n3. The URL should be the presignedUploadUrl from step 1"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Complete Upload",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate fileId is available",
+                  "var fileId = pm.collectionVariables.get(\"fileId\");",
+                  "if (!fileId) {",
+                  "    throw new Error(\"File ID not found. Run '1. Presign Upload' first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"File indexed successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"indexed\");",
+                  "    pm.expect(jsonData.fileId).to.exist;",
+                  "    pm.expect(jsonData.indexed).to.be.true;",
+                  "    pm.expect(jsonData.textExtracted).to.be.true;",
+                  "    pm.expect(jsonData.hash).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"fileId\": \"{{fileId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/upload/complete",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "upload", "complete"]
+            },
+            "description": "Complete file upload, extract text, compute hash, and index semantically."
+          },
+          "response": []
         }
       ],
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{presignedDownloadUrl}}"
+      "description": "Complete file upload flow: presign → upload → complete"
+    },
+    {
+      "name": "File Management",
+      "item": [
+        {
+          "name": "1. List Files",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains files array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.files).to.be.an('array');",
+                  "    pm.expect(jsonData.total).to.be.a('number');",
+                  "    pm.expect(jsonData.limit).to.be.a('number');",
+                  "    pm.expect(jsonData.offset).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/files?limit=50&offset=0",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "files"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "folderId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "mimeType",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List user's files with pagination. Optional filters: folderId, mimeType"
+          },
+          "response": []
         },
-        "description": "Download file from S3 using the presigned URL from step 5.\n\n**Note:** The URL should be the presignedDownloadUrl from step 5. In Postman, you can save the response to a file."
-      },
-      "response": []
+        {
+          "name": "2. Get File Metadata",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate fileId is available",
+                  "var fileId = pm.collectionVariables.get(\"fileId\");",
+                  "if (!fileId) {",
+                  "    throw new Error(\"File ID not found. Run upload flow first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains file metadata\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.fileId).to.exist;",
+                  "    pm.expect(jsonData.name).to.exist;",
+                  "    pm.expect(jsonData.size).to.be.a('number');",
+                  "    pm.expect(jsonData.mimeType).to.exist;",
+                  "    pm.expect(jsonData.storagePath).to.exist;",
+                  "    pm.expect(jsonData.createdAt).to.exist;",
+                  "    pm.expect(jsonData.userId).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/files/{{fileId}}",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "files", "{{fileId}}"]
+            },
+            "description": "Get file metadata by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Update File Metadata",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate fileId is available",
+                  "var fileId = pm.collectionVariables.get(\"fileId\");",
+                  "if (!fileId) {",
+                  "    throw new Error(\"File ID not found. Run upload flow first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"File updated successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"updated\");",
+                  "    pm.expect(jsonData.file).to.exist;",
+                  "    pm.expect(jsonData.file.fileId).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"updated-test.txt\",\n    \"description\": \"Updated file description\",\n    \"tags\": [\"test\", \"updated\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/files/{{fileId}}",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "files", "{{fileId}}"]
+            },
+            "description": "Update file metadata (name, description, tags, folderId)."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Get Download URL",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate fileId is available",
+                  "var fileId = pm.collectionVariables.get(\"fileId\");",
+                  "if (!fileId) {",
+                  "    throw new Error(\"File ID not found. Run upload flow first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Download URL generated\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.url).to.exist;",
+                  "    pm.expect(jsonData.expiresIn).to.be.a('number');",
+                  "    pm.expect(jsonData.fileId).to.exist;",
+                  "    ",
+                  "    // Save download URL for next request",
+                  "    pm.collectionVariables.set(\"presignedDownloadUrl\", jsonData.url);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/files/{{fileId}}/download?expiresIn=3600",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "files", "{{fileId}}", "download"],
+              "query": [
+                {
+                  "key": "expiresIn",
+                  "value": "3600",
+                  "description": "URL expiration time in seconds (max: 86400)"
+                }
+              ]
+            },
+            "description": "Get a presigned download URL for a file."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Download File from S3",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate download URL is available",
+                  "var downloadUrl = pm.collectionVariables.get(\"presignedDownloadUrl\");",
+                  "if (!downloadUrl) {",
+                  "    throw new Error(\"Download URL not found. Run '4. Get Download URL' first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Download successful\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 206]);",
+                  "});",
+                  "",
+                  "pm.test(\"File content received\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.exist;",
+                  "    pm.expect(pm.response.headers.get(\"Content-Length\")).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{presignedDownloadUrl}}"
+            },
+            "description": "Download file from S3 using the presigned URL from step 4.\n\n**Note:** The URL should be the presignedDownloadUrl from step 4. In Postman, you can save the response to a file."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Delete File",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Validate fileId is available",
+                  "var fileId = pm.collectionVariables.get(\"fileId\");",
+                  "if (!fileId) {",
+                  "    throw new Error(\"File ID not found. Run upload flow first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"File deleted successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"deleted\");",
+                  "    pm.expect(jsonData.fileId).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/files/{{fileId}}",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "files", "{{fileId}}"]
+            },
+            "description": "Delete a file and its metadata from S3 and the index."
+          },
+          "response": []
+        }
+      ],
+      "description": "File management operations: list, get, update, download, delete"
+    },
+    {
+      "name": "Search",
+      "item": [
+        {
+          "name": "Semantic Search",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Search completed successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.results).to.be.an('array');",
+                  "    pm.expect(jsonData.query).to.exist;",
+                  "    pm.expect(jsonData.total).to.be.a('number');",
+                  "});",
+                  "",
+                  "pm.test(\"Results contain file metadata\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    ",
+                  "    if (jsonData.results.length > 0) {",
+                  "        var firstResult = jsonData.results[0];",
+                  "        pm.expect(firstResult).to.have.property('fileId');",
+                  "        pm.expect(firstResult).to.have.property('name');",
+                  "        pm.expect(firstResult).to.have.property('score');",
+                  "        pm.expect(firstResult.score).to.be.a('number');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"query\": \"test\",\n    \"k\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{pythonServiceUrl}}/api/v1/search",
+              "host": ["{{pythonServiceUrl}}"],
+              "path": ["api", "v1", "search"]
+            },
+            "description": "Perform semantic search across user's files. Returns files that match the query semantically with similarity scores."
+          },
+          "response": []
+        }
+      ],
+      "description": "Semantic search functionality"
     }
   ],
   "event": [],
   "variable": [
     {
-      "key": "appwriteEndpoint",
-      "value": "https://sgp.cloud.appwrite.io/v1",
+      "key": "pythonServiceUrl",
+      "value": "http://localhost:8000",
       "type": "string"
     },
     {
-      "key": "projectId",
-      "value": "694f94f00016c4a31254",
-      "type": "string"
+      "key": "apiKey",
+      "value": "",
+      "type": "string",
+      "description": "API key for Python service authentication (X-API-Key header)"
     },
     {
       "key": "userId",
       "value": "6950c2440001ee20a565",
-      "type": "string"
-    },
-    {
-      "key": "mimeType",
-      "value": "text/plain",
-      "type": "string"
+      "type": "string",
+      "description": "User ID from Appwrite authentication (X-User-Id header)"
     },
     {
       "key": "fileId",
@@ -399,6 +806,11 @@
     {
       "key": "presignedDownloadUrl",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mimeType",
+      "value": "text/plain",
       "type": "string"
     }
   ]
