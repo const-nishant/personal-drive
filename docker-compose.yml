@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: semantic-service
     ports:
-      - "8000:8000"
+      - "7860:7860"
 
     volumes:
       # Mount index directory for persistence

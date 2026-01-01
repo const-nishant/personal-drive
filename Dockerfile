@@ -48,9 +48,8 @@ ENV EMBEDDING_DIM=384
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port (matches docker-compose.yml)
-EXPOSE 8000
+EXPOSE 7860
 
-# Run the application
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+
 
