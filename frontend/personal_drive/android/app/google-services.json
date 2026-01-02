@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "588131930078",
+    "project_id": "personal-drive-9a435",
+    "storage_bucket": "personal-drive-9a435.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:588131930078:android:717d0bae50f0988b6dd74f",
+        "android_client_info": {
+          "package_name": "com.example.personal_drive"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "588131930078-gn2090bvpaq6d10ba1ct0c2iuci1smjc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.personal_drive",
+            "certificate_hash": "c426f4fecb6399cc161602c5f1163115130004c0"
+          }
+        },
+        {
+          "client_id": "588131930078-91ad3gfhs84leaq06t14lqhjkh74pgjp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClb4lpB3UTlCXimup8BvopRT9hi6r8mb4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "588131930078-91ad3gfhs84leaq06t14lqhjkh74pgjp.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "588131930078-hd7fch1aa2tjnm72f8uo6nrktbp58e2v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.personal-drive.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
