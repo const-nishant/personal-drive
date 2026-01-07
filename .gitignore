@@ -50,6 +50,11 @@ env/
 .pub/
 /build/
 /coverage/
+
+# Firebase configuration (contains sensitive keys)
+**/firebase_options.dart
+**/google-services.json
+**/GoogleService-Info.plist
 *.iml
 *.ipr
 *.iws
