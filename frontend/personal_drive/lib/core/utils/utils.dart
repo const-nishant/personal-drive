@@ -1,7 +1,9 @@
 /// Utility functions and helpers for the Personal Drive application
+library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 /// Validates if a string is a valid email format
 bool isValidEmail(String email) {
   final emailRegex = RegExp(
@@ -80,6 +82,10 @@ Function debounce(Function func, Duration duration) {
   };
 }
 
+String getFormattedDate() {
+    final now = DateTime.now();
+    return DateFormat('EEEE, d MMM').format(now);
+  }
 /// Throttles a function call
 Function throttle(Function func, Duration duration) {
   bool isThrottled = false;

@@ -217,4 +217,5 @@ coverage/
 *.rej
 *.patch
 .cursor/
-
+frontend/design-reference
+  
